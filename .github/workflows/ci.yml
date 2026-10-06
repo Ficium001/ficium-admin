@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+  push: { branches: [main] }
+permissions: { contents: read }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm audit --audit-level=high --omit=dev
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: No more than 12 Vercel functions (Hobby cap)
+        run: |
+          n=$(find api -name '*.ts' -not -path '*/_*' -not -name '*.test.ts' | wc -l)
+          echo "functions: $n"; test "$n" -le 12
+      - name: No service key in this app
+        run: "! grep -rEn 'SERVICE_ROLE|service_role' --include=*.ts --include=*.tsx api src"
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: trufflesecurity/trufflehog@main
+        with: { extra_args: --only-verified }
