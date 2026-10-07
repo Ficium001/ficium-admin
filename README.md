@@ -20,18 +20,49 @@ browser ──► Cloudflare Access (company login + MFA) ──► Vercel ─�
 - **No service key.** CI fails if one appears. The DB role cannot write tables directly.
 - **Every change is audited** in `admin.kyc_settings_change`: who, old → new, reason, when.
 
-## Deploy (needs the admin address — not needed to build)
+## Deploy
 
-1. **DB role password** — in the App DB SQL editor, with a long random password:
-   `ALTER ROLE ficium_admin_app LOGIN PASSWORD '<generate 32+ chars>';`
-2. **Vercel** — new project from this repo. Env vars (Production only): see `.env.example`.
-   Use the Supabase *transaction pooler* URL with user `ficium_admin_app.<project-ref>`.
-3. **Domain** — add the admin address (e.g. `admin.ficium.net`) to the Vercel project.
-4. **Cloudflare Access** (Zero Trust → Access → Applications → Add → Self-hosted):
-   - Application domain: the admin address.
-   - Policy: *Allow*, include emails ending in `@ficium.net` (or named people only); require MFA.
-   - Copy the **Application Audience (AUD) tag** → `CF_ACCESS_AUD`; your team domain → `CF_ACCESS_TEAM_DOMAIN`.
-5. **Vercel Deployment Protection** on, so preview URLs aren't public.
+The app **fails closed**: until Cloudflare Access is configured it answers 503 to everything, and a direct
+visit to the `*.vercel.app` URL without an Access token gets 401. Deploying first is safe.
+
+### 1. Database role password (you, in Supabase — never paste it into a chat)
+Supabase -> project **Ficium** -> SQL editor. Generate ~40 random letters/digits in a password manager
+(letters and digits only, so the connection string needs no escaping), then run:
+
+    ALTER ROLE ficium_admin_app LOGIN PASSWORD '<the password>';
+
+The role can read KYC settings and their history and change a check only through the audited
+`admin.set_kyc_check`; it cannot write tables, and it is capped at 6 connections.
+
+### 2. Vercel project
+Vercel -> Add New -> Project -> import `Ficium001/ficium-admin` (grant the Vercel GitHub app access to this
+private repo if asked). Framework preset: **Vite** (auto-detected). Environment variables, **Production only**:
+
+| Name | Value |
+|---|---|
+| `ADMIN_DATABASE_URL` | Supabase -> Connect -> *Transaction pooler* string; change the user to `ficium_admin_app.<project-ref>`, set the password from step 1 |
+| `STAFF_EMAIL_DOMAIN` | `ficium.net` |
+| `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | leave unset until step 4 (the app stays closed) |
+
+Settings -> Deployment Protection: keep **Vercel Authentication** on so preview URLs are not public.
+Note: Vercel Hobby is non-commercial only; this is part of a commercial product, so use Pro.
+
+### 3. Domain
+Add the admin address (e.g. `admin.ficium.net`) in Vercel -> Domains, and create the DNS record Vercel shows.
+Cloudflare Access can only protect a hostname in a Cloudflare zone, so `ficium.net` DNS must be on Cloudflare
+and the record **proxied** (orange cloud).
+
+### 4. Cloudflare Access
+Zero Trust -> Access -> Applications -> Add -> Self-hosted:
+- Application domain: the admin address.
+- Policy: *Allow*, emails ending in `@ficium.net` (or named people only); require MFA.
+- Copy the **Application Audience (AUD) tag** and your team domain into `CF_ACCESS_AUD` / `CF_ACCESS_TEAM_DOMAIN`
+  in Vercel, then redeploy.
+
+### 5. Verify (from a phone is fine)
+1. `https://<project>.vercel.app/api/kyc` -> 401 "Sign in through Ficium Access" (or 503 before step 4). Never 200.
+2. `https://<admin address>` -> Cloudflare login, then the KYC checks page with your email top-right.
+3. Flip a non-critical check off and on with a reason; the change appears in the history list.
 
 ## Develop
 

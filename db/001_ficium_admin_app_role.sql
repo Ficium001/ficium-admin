@@ -13,3 +13,5 @@ GRANT SELECT ON public.kyc_settings TO ficium_admin_app;
 GRANT SELECT ON admin.kyc_settings_change TO ficium_admin_app;
 GRANT EXECUTE ON FUNCTION admin.set_kyc_check(text, boolean, text, text) TO ficium_admin_app;
 -- + SELECT policies for the role on both tables where RLS is enabled.
+
+-- 2026-10-06: ALTER ROLE ficium_admin_app CONNECTION LIMIT 6;  (migration ficium_admin_app_connection_limit)
