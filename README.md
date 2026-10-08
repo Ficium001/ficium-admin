@@ -64,6 +64,22 @@ Zero Trust -> Access -> Applications -> Add -> Self-hosted:
 2. `https://<admin address>` -> Cloudflare login, then the KYC checks page with your email top-right.
 3. Flip a non-critical check off and on with a reason; the change appears in the history list.
 
+## Alternative: hosted login (no Cloudflare / custom domain needed)
+
+Works on the plain `*.vercel.app` URL. Cloudflare wins if both are configured.
+
+1. **Create a new, empty Supabase project used only for staff sign-in.** Do not use the borrower or portal
+   projects: disabling sign-ups there would break customer registration, and customers share that user pool.
+2. In that project: Authentication -> **disable "Allow new users to sign up"**; MFA -> keep TOTP enabled.
+   Add each staff member under Users -> Add user (auto-confirm), then copy their **User UID**.
+3. Vercel env vars, Production only (then redeploy; `VITE_*` are baked in at build time):
+   `SUPABASE_AUTH_URL`, `STAFF_USER_IDS` (comma-separated UIDs), `VITE_AUTH_URL`, `VITE_AUTH_ANON_KEY`.
+   `ADMIN_DATABASE_URL` is unchanged and still points at the borrower database.
+4. First sign-in: email + password, then scan the QR to enrol an authenticator. Every later sign-in needs the code.
+
+Server rules: valid signature/issuer/audience/expiry, **`aal2` with a TOTP method**, and the user id must be in
+`STAFF_USER_IDS`. An email address is never what grants access. The anon key in the browser is public by design.
+
 ## Develop
 
 ```

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CHECKS, MIN_REASON } from "../api/_lib/checks";
 import { load, change, type State } from "./api";
+import { AUTH_ENABLED, clearSession } from "./auth";
 
 type Pending = { key: string; value: boolean };
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
@@ -26,7 +27,7 @@ export default function App() {
     <main className="shell">
       <header className="top">
         <h1>KYC checks</h1>
-        <p className="who">Signed in as {state.actor}</p>
+        <p className="who">Signed in as {state.actor}{AUTH_ENABLED && <> · <button type="button" className="ghost" onClick={() => { clearSession(); location.reload(); }}>Sign out</button></>}</p>
       </header>
 
       <section className={`status ${criticalOff.length ? "danger" : off.length ? "warn" : "ok"}`} aria-live="polite">

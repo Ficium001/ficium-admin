@@ -54,3 +54,60 @@ describe("requireStaff", () => {
     expect(await status(requireStaff({}, { ...bypass, VERCEL_ENV: "production" }))).toBe(503);
   });
 });
+
+describe("requireStaff — hosted login (Supabase Auth)", () => {
+  const BASE = "https://authonly.supabase.co", UID = "11111111-1111-4111-8111-111111111111";
+  const henv = { SUPABASE_AUTH_URL: BASE, STAFF_USER_IDS: `${UID},22222222-2222-4222-8222-222222222222` };
+  async function hsetup() {
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const getKey = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: "s1", alg: "ES256" }] });
+    const sign = (claims: Record<string, unknown>, o: { aud?: string; iss?: string; exp?: string; sub?: string } = {}) =>
+      new SignJWT(claims).setProtectedHeader({ alg: "ES256", kid: "s1" }).setIssuedAt().setSubject(o.sub ?? UID)
+        .setAudience(o.aud ?? "authenticated").setIssuer(o.iss ?? `${BASE}/auth/v1`).setExpirationTime(o.exp ?? "5m").sign(privateKey);
+    return { getKey, sign };
+  }
+  const good = { email: "KJ@ficium.net", aal: "aal2", amr: [{ method: "password" }, { method: "totp" }] };
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+
+  it("fails closed when only half the config is present", async () => {
+    expect(await status(requireStaff({}, { SUPABASE_AUTH_URL: BASE }))).toBe(503);
+    expect(await status(requireStaff({}, { STAFF_USER_IDS: UID }))).toBe(503);
+  });
+  it("rejects a request with no bearer token", async () => {
+    expect(await status(requireStaff({}, henv))).toBe(401);
+  });
+  it("accepts an allowlisted user at aal2 and returns the email", async () => {
+    const { getKey, sign } = await hsetup();
+    expect(await requireStaff(bearer(await sign(good)), henv, getKey)).toBe("kj@ficium.net");
+  });
+  it("rejects a password-only session (aal1) — MFA is mandatory", async () => {
+    const { getKey, sign } = await hsetup();
+    const t = await sign({ email: "kj@ficium.net", aal: "aal1", amr: [{ method: "password" }] });
+    expect(await status(requireStaff(bearer(t), henv, getKey))).toBe(401);
+  });
+  it("rejects aal2 claimed without a totp method", async () => {
+    const { getKey, sign } = await hsetup();
+    const t = await sign({ email: "kj@ficium.net", aal: "aal2", amr: [{ method: "password" }] });
+    expect(await status(requireStaff(bearer(t), henv, getKey))).toBe(401);
+  });
+  it("rejects a valid user who is not on the allowlist, even with a staff email", async () => {
+    const { getKey, sign } = await hsetup();
+    const t = await sign(good, { sub: "99999999-9999-4999-8999-999999999999" });
+    expect(await status(requireStaff(bearer(t), henv, getKey))).toBe(403);
+  });
+  it("rejects wrong audience, wrong issuer, expired, and foreign-key tokens", async () => {
+    const { getKey, sign } = await hsetup();
+    const other = await hsetup();
+    for (const t of [await sign(good, { aud: "anon" }), await sign(good, { iss: "https://evil.supabase.co/auth/v1" }),
+                     await sign(good, { exp: "-1m" }), await other.sign(good)]) {
+      expect(await status(requireStaff(bearer(t), henv, getKey))).toBe(401);
+    }
+  });
+  it("Cloudflare config takes precedence and ignores bearer tokens", async () => {
+    const { getKey, sign } = await hsetup();
+    expect(await status(requireStaff(bearer(await sign(good)), { ...henv, ...env }, getKey))).toBe(401);
+  });
+  it("never honours the dev bypass on Vercel in this mode either", async () => {
+    expect(await status(requireStaff({}, { ...henv, ALLOW_DEV_AUTH: "1", DEV_ACTOR: "x@ficium.net", VERCEL: "1" }))).toBe(401);
+  });
+});
