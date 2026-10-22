@@ -1,7 +1,10 @@
 # ficium-admin
 
-Ficium's internal staff app. Not customer-facing. First module: **KYC checks** — turn
-verification checks on or off, with a required reason and a full change history.
+Ficium's internal staff app. Not customer-facing. Modules:
+
+- **KYC checks** — turn verification checks on or off, with a required reason and a full change history.
+- **Offers** — create, approve, publish, re-verify and withdraw the provider offers shown in the borrower
+  app's Offers feed. See *Offers* below.
 
 ## How it's protected
 
@@ -63,6 +66,27 @@ Zero Trust -> Access -> Applications -> Add -> Self-hosted:
 1. `https://<project>.vercel.app/api/kyc` -> 401 "Sign in through Ficium Access" (or 503 before step 4). Never 200.
 2. `https://<admin address>` -> Cloudflare login, then the KYC checks page with your email top-right.
 3. Flip a non-critical check off and on with a reason; the change appears in the history list.
+
+## Offers
+
+```
+draft ──approve (reason)──► approved ──publish──► published ──withdraw (reason)──► withdrawn
+  ▲                                                   │
+  └──────────────── any edit sends it back to draft ──┘   (live version stays until republished)
+```
+
+- Writes only through `admin.offer_save / _approve / _publish / _withdraw / _reverify`; every action is in
+  `admin.offer_change` (append-only) with a full snapshot.
+- Approval refuses an offer without image + description, source link, provider consent reference, a
+  future expiry, and rates verified within 30 days. Self-approval is allowed while Ficium has one staff
+  member, and is recorded (`self_approved`) rather than hidden.
+- A published offer leaves the borrower feed on its own at expiry or 30 days after the last verification.
+  Use *Record re-verification* to keep it live.
+- **Images** go to Vercel Blob (`offers/…`, public, unguessable URL). Connect a Blob store to this Vercel
+  project (Storage → Create → Blob → connect, Production) so `BLOB_READ_WRITE_TOKEN` is set. That token can
+  write blobs only. JPEG/PNG/WebP, 2 MB max, content is checked against the declared type.
+- The borrower app only renders images from `*.public.blob.vercel-storage.com` and only reads
+  `public.offer_listing`. This app never reads borrower tables.
 
 ## Develop
 

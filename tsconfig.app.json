@@ -5,5 +5,5 @@
     "noUnusedLocals": true, "noUnusedParameters": true, "skipLibCheck": true,
     "tsBuildInfoFile": "./node_modules/.tmp/app.tsbuildinfo"
   },
-  "include": ["src", "api/_lib/checks.ts"]
+  "include": ["src", "api/_lib/checks.ts", "api/_lib/offers.ts"]
 }
