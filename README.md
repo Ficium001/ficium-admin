@@ -82,9 +82,13 @@ draft ──approve (reason)──► approved ──publish──► published 
   member, and is recorded (`self_approved`) rather than hidden.
 - A published offer leaves the borrower feed on its own at expiry or 30 days after the last verification.
   Use *Record re-verification* to keep it live.
-- **Images** go to Vercel Blob (`offers/…`, public, unguessable URL). Connect a Blob store to this Vercel
-  project (Storage → Create → Blob → connect, Production) so `BLOB_READ_WRITE_TOKEN` is set. That token can
-  write blobs only. JPEG/PNG/WebP, 2 MB max, content is checked against the declared type.
+- **Images** go to the public Vercel Blob store `ficium-admin-blob` (region `bom1`, path `offers/…`,
+  unguessable URLs). Auth is **OIDC**: on Vercel, `@vercel/blob`'s server `put()` uses the short-lived
+  per-request OIDC token plus `BLOB_STORE_ID`, so there is **no long-lived blob token**. Keep the store
+  connected to **Production only** — Preview deployments also receive OIDC tokens and must not be able to
+  write. JPEG/PNG/WebP, 2 MB max, content is checked against the declared type. If an upload ever fails
+  with a credentials error, check the connection and `BLOB_STORE_ID` first; adding a read-write token is a
+  fallback, not the default.
 - The borrower app only renders images from `*.public.blob.vercel-storage.com` and only reads
   `public.offer_listing`. This app never reads borrower tables.
 
