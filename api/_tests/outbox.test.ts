@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { dispatch, order, errorText, type DispatchDeps, type OutboxEvent } from "../_lib/outbox.js";
 import { makeHandler, authorised } from "../outbox-dispatch.js";
-import { stripSslParams } from "../_lib/sync-db.js";
+import { stripSslParams, parseDbUrl } from "../_lib/sync-db.js";
 
 const ev = (id: string, agg: string, v: number, topic = "offer.listing_upserted"): OutboxEvent => ({
   id, topic, aggregate_type: "offer", aggregate_id: agg, aggregate_version: String(v), payload: { id: agg }, attempts: 1,
@@ -134,5 +134,24 @@ describe("stripSslParams", () => {
   it("removes ssl* and channel_binding so code decides TLS", () => {
     const u = stripSslParams("postgresql://u:p@host/db?sslmode=disable&sslrootcert=x&channel_binding=require&application_name=w");
     expect(u).not.toMatch(/ssl|channel_binding/); expect(u).toContain("application_name=w");
+  });
+});
+
+describe("parseDbUrl diagnostics never echo the value", () => {
+  const ok = "postgresql://ficium_admin_sync.ref:Abc123xyz@aws-1-ap-south-1.pooler.supabase.com:6543/postgres";
+  it("accepts a well-formed URL", () => { expect(parseDbUrl(ok).port).toBe("6543"); });
+  it.each([
+    [` ${ok}\n`, "spaces or line breaks"],
+    [`"${ok}"`, "quotes"],
+    [ok.replace("Abc123xyz", "[Abc123xyz]"), "[ ]"],
+    [ok.replace("Abc123xyz", "Abc@123"), "more than one '@'"],
+    [ok.replace("Abc123xyz", "Abc#123"), "# ? /"],
+    [ok.replace("postgresql://", "https://"), "postgresql://"],
+  ])("explains %#", (bad, why) => {
+    let msg = "";
+    try { parseDbUrl(bad); } catch (e) { msg = (e as Error).message; }
+    expect(msg).toContain(why);
+    expect(msg).not.toContain("Abc");
+    expect(msg).not.toContain("123");
   });
 });

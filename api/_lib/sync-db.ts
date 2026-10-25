@@ -20,7 +20,31 @@ let warned = false;
 function need(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`${name} is not set`);
-  return v;
+  try { parseDbUrl(v); } catch (e) { throw new Error(`${name}: ${(e as Error).message}`); }
+  return v.trim();
+}
+
+/**
+ * Parse a postgres URL. On failure, say WHAT is wrong with its shape — never
+ * echo the value, which contains a password.
+ */
+export function parseDbUrl(raw: string): URL {
+  const v = raw.trim();
+  const problems: string[] = [];
+  if (v !== raw) problems.push("has spaces or line breaks at the start/end");
+  if (/^["'`]|["'`]$/.test(v)) problems.push("is wrapped in quotes");
+  if (!/^postgres(ql)?:\/\//.test(v)) problems.push("must start with postgresql://");
+  const auth = v.replace(/^postgres(ql)?:\/\//, "");
+  const at = (auth.match(/@/g) ?? []).length;
+  if (at === 0) problems.push("has no '@' between credentials and host");
+  if (at > 1) problems.push("has more than one '@' (a password '@' must be written %40)");
+  if (/[\[\]]/.test(auth.split("@").slice(0, -1).join("@"))) problems.push("has [ ] around the password (remove them)");
+  if (/[#?/\s]/.test(auth.split("@").slice(0, -1).join("@"))) problems.push("password contains # ? / or a space (use letters and digits only)");
+  if (/\s/.test(v)) problems.push("contains whitespace inside");
+  let u: URL | null = null;
+  try { u = new URL(v); } catch { problems.push("is not a valid URL"); }
+  if (problems.length) throw new Error(`connection string ${[...new Set(problems)].join("; ")}`);
+  return u!;
 }
 
 /**
@@ -28,7 +52,7 @@ function need(name: string): string {
  * parameters override the ssl option, which could silently weaken it.
  */
 export function stripSslParams(url: string): string {
-  const u = new URL(url);
+  const u = parseDbUrl(url);
   for (const k of [...u.searchParams.keys()]) if (k.startsWith("ssl") || k === "channel_binding") u.searchParams.delete(k);
   return u.toString();
 }
