@@ -103,24 +103,29 @@ into Neon before the paid-plan / PITR / IP-allowlist gate in that README.
 ### Publish path (admin DB → App DB)
 
 ```
-Neon app_admin                         Vercel Cron (every minute)              App DB
+Neon app_admin                         App DB pg_cron (hourly sweep)           App DB
 api.* writes change + audit + outbox ─► /api/outbox-dispatch ─► admin.sync_apply ─► offer_listing /
                                         claim (lease) → apply → ack/nack            kyc_settings /
                                                                                      platform_config
 ```
 
-- `/api/outbox-dispatch` is **not** behind Cloudflare Access (cron calls it directly); it requires
+- **Trigger:** App DB `pg_cron` job `admin-outbox-sweep` (hourly, `admin.trigger_outbox_dispatch()`, migration
+  `admin_outbox_trigger_v1`) calls the endpoint. Not Vercel Cron: Hobby allows daily only and fails deploys
+  otherwise. Hourly because each call wakes the Neon DB (free tier scales to zero); after the cut-over the
+  admin API dispatches right after each write, so the sweep only handles retries.
+- `/api/outbox-dispatch` is **not** behind Cloudflare Access (the scheduler calls it directly); it requires
   `Authorization: Bearer $CRON_SECRET` and fails closed (503) without a 32+ character secret.
 - Two single-purpose credentials: `app_admin_worker` (Neon, outbox functions only) and
   `ficium_admin_sync` (App DB, `admin.sync_apply` only). See `.env.example`.
 - Safe under retries, overlap and reordering: leases + `SKIP LOCKED` on the Neon side, per-aggregate
   version + event-id dedupe on the App DB side. Failures back off exponentially and dead-letter after
   12 attempts (`outbox.event.failed_at`).
-- Per-minute cron needs Vercel **Pro** (Hobby allows daily only).
 
 Enable it: (1) Supabase SQL editor: `ALTER ROLE ficium_admin_sync LOGIN PASSWORD '<password manager>';`
-(2) Vercel → Production env: `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`, `CRON_SECRET`;
-(3) redeploy. Until (2), the endpoint answers 503 and nothing moves.
+(2) Doppler `ficium-admin/prd` → Vercel Production: `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`,
+`CRON_SECRET`; redeploy. (3) Supabase SQL editor, same secret value:
+`select vault.create_secret('<CRON_SECRET>', 'admin_outbox_cron_secret');` then clear the editor history.
+Until (2) the endpoint answers 503; until (3) the sweep does nothing.
 
 ## Develop
 

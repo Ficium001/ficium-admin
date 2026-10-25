@@ -43,11 +43,5 @@
         }
       ]
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/outbox-dispatch",
-      "schedule": "* * * * *"
-    }
   ]
 }
