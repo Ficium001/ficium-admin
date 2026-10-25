@@ -1,0 +1,9 @@
+-- APPLIED to the App DB (wixfhjlsjkiwfvqewvmt) on 2026-10-25 as migration admin_sync_v1.
+-- Full source of truth: Ficium001/ficium supabase/migrations/20261025180000_admin_sync_v1.sql
+-- What it adds for this app:
+--   admin.sync_apply(event_id, topic, aggregate_type, aggregate_id, version, payload) -> 'applied'|'stale'|'duplicate'
+--     the ONLY entry point the outbox worker uses; idempotent and order-independent.
+--   admin.sync_state / admin.sync_log (append-only), deny-all to API roles.
+--   ficium_admin_sync: NOLOGIN role, EXECUTE on admin.sync_apply only, 3 connections, 10s statement timeout.
+-- To enable (you, in Supabase SQL editor, password from your password manager):
+--   ALTER ROLE ficium_admin_sync LOGIN PASSWORD '<password>';
