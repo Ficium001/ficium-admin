@@ -8,6 +8,9 @@
     },
     "api/offer-image.ts": {
       "maxDuration": 20
+    },
+    "api/outbox-dispatch.ts": {
+      "maxDuration": 30
     }
   },
   "headers": [
@@ -39,6 +42,12 @@
           "value": "camera=(), microphone=(), geolocation=()"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/outbox-dispatch",
+      "schedule": "* * * * *"
     }
   ]
 }

@@ -96,10 +96,31 @@ draft ──approve (reason)──► approved ──publish──► published 
 
 The app is moving off the App DB `admin` schema onto its own databases
 (`app_admin`, `portal_admin`) on Neon project `Ficium_admin`. Migrations,
-roles and design: [`db/admin-db/README.md`](db/admin-db/README.md). Applied
-to Neon on 2026-10-25; the code above still uses the App DB until the
-cut-over. No real customer data goes into Neon before the paid-plan /
-PITR / IP-allowlist gate in that README is met.
+roles and design: [`db/admin-db/README.md`](db/admin-db/README.md). The pages
+above still use the App DB until the cut-over. No real customer data goes
+into Neon before the paid-plan / PITR / IP-allowlist gate in that README.
+
+### Publish path (admin DB → App DB)
+
+```
+Neon app_admin                         Vercel Cron (every minute)              App DB
+api.* writes change + audit + outbox ─► /api/outbox-dispatch ─► admin.sync_apply ─► offer_listing /
+                                        claim (lease) → apply → ack/nack            kyc_settings /
+                                                                                     platform_config
+```
+
+- `/api/outbox-dispatch` is **not** behind Cloudflare Access (cron calls it directly); it requires
+  `Authorization: Bearer $CRON_SECRET` and fails closed (503) without a 32+ character secret.
+- Two single-purpose credentials: `app_admin_worker` (Neon, outbox functions only) and
+  `ficium_admin_sync` (App DB, `admin.sync_apply` only). See `.env.example`.
+- Safe under retries, overlap and reordering: leases + `SKIP LOCKED` on the Neon side, per-aggregate
+  version + event-id dedupe on the App DB side. Failures back off exponentially and dead-letter after
+  12 attempts (`outbox.event.failed_at`).
+- Per-minute cron needs Vercel **Pro** (Hobby allows daily only).
+
+Enable it: (1) Supabase SQL editor: `ALTER ROLE ficium_admin_sync LOGIN PASSWORD '<password manager>';`
+(2) Vercel → Production env: `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`, `CRON_SECRET`;
+(3) redeploy. Until (2), the endpoint answers 503 and nothing moves.
 
 ## Develop
 

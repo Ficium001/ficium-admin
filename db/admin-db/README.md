@@ -92,9 +92,8 @@ databases' `0001_platform.sql`.
 
 ## Not done yet (next steps)
 
-1. App DB side of the publish path: idempotent apply functions for
-   `public.offer_listing`, `public.kyc_settings` and `admin.platform_config`
-   granted to a dedicated dispatcher role, plus the dispatcher worker.
+1. ~~Publish path~~ done 2026-10-25: App DB `admin.sync_apply` +
+   `/api/outbox-dispatch` (see the root README).
 2. Cut the existing ficium-admin code over from the App DB `admin` schema
    (`ficium_admin_app` role, `admin.offer_*`, `admin.set_kyc_check`) to these
    `api.*` functions, then retire that schema.
