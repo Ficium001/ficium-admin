@@ -92,6 +92,15 @@ draft ──approve (reason)──► approved ──publish──► published 
 - The borrower app only renders images from `*.public.blob.vercel-storage.com` and only reads
   `public.offer_listing`. This app never reads borrower tables.
 
+## Admin database (Neon) — in progress
+
+The app is moving off the App DB `admin` schema onto its own databases
+(`app_admin`, `portal_admin`) on Neon project `Ficium_admin`. Migrations,
+roles and design: [`db/admin-db/README.md`](db/admin-db/README.md). Applied
+to Neon on 2026-10-25; the code above still uses the App DB until the
+cut-over. No real customer data goes into Neon before the paid-plan /
+PITR / IP-allowlist gate in that README is met.
+
 ## Develop
 
 ```
