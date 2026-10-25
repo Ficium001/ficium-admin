@@ -1,8 +1,9 @@
 /**
- * GET /api/outbox-dispatch — run by Vercel Cron every minute.
+ * GET /api/outbox-dispatch — called hourly by the App DB scheduler
+ * (pg_cron job admin-outbox-sweep) and, after the cut-over, by the admin API.
  *
- * Not behind Cloudflare Access (cron calls the deployment directly), so it is
- * protected by CRON_SECRET, which Vercel sends as "Authorization: Bearer ...".
+ * Not behind Cloudflare Access (the scheduler calls the deployment directly), so
+ * it is protected by CRON_SECRET, sent as "Authorization: Bearer ...".
  * Fail closed: no/short secret => 503; wrong or missing header => 401.
  * It takes no input: the only thing a caller can cause is "drain the outbox".
  */
