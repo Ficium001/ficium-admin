@@ -76,3 +76,51 @@ describe("requireStaffIdentity with Access tokens", () => {
     expect(await status(requireStaffIdentity({ "cf-access-jwt-assertion": t }, env, getKey))).toBe(403);
   });
 });
+
+describe("ficium-auth tokens", () => {
+  const fenv = { FICIUM_AUTH_URL: "https://auth.example", STAFF_EMAIL_DOMAIN: "ficium.net" };
+  async function fa() {
+    const { publicKey, privateKey } = await generateKeyPair("RS256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "ficium-auth-rs256-v1", alg: "RS256" };
+    const getKey = createLocalJWKSet({ keys: [jwk] });
+    const sign = (claims: Record<string, unknown>, iss = "ficium-auth") =>
+      new SignJWT({ sub: "u-1", email: "KJ@ficium.net", institution_id: "00000000-0000-0000-0000-000000000001",
+        user_role: "super_admin", amr: ["pwd", "otp", "mfa"], ...claims })
+        .setProtectedHeader({ alg: "RS256", kid: "ficium-auth-rs256-v1" }).setIssuedAt()
+        .setAudience("authenticated").setIssuer(iss).setExpirationTime("5m").sign(privateKey);
+    return { getKey, sign };
+  }
+  const auth = (t: string) => ({ authorization: `Bearer ${t}` });
+  const fail = async (p: Promise<unknown>) => { try { await p; return null; } catch (e) { return e as AuthError; } };
+
+  it("accepts a platform staff account that signed in with MFA", async () => {
+    const { getKey, sign } = await fa();
+    expect(await requireStaffIdentity(auth(await sign({})), fenv, getKey)).toEqual({ email: "kj@ficium.net", sub: "ficium-auth:u-1" });
+  });
+  it("sends a password-only session to MFA setup", async () => {
+    const { getKey, sign } = await fa();
+    const e = await fail(requireStaffIdentity(auth(await sign({ amr: ["pwd"] })), fenv, getKey));
+    expect(e?.status).toBe(403); expect(e?.code).toBe("MFA_REQUIRED");
+  });
+  it.each([
+    [{ institution_id: "f192050a-dfdd-4da7-874e-c3db88f11e41" }, 403],   // a bank user (MCB)
+    [{ user_role: "institution_admin" }, 403],
+    [{ email: "someone@gmail.com" }, 403],
+    [{ sub: undefined }, 403],
+  ])("refuses %j", async (claims, status) => {
+    const { getKey, sign } = await fa();
+    expect((await fail(requireStaffIdentity(auth(await sign(claims)), fenv, getKey)))?.status).toBe(status);
+  });
+  it("refuses a wrong issuer, a foreign key, and a missing bearer", async () => {
+    const { getKey, sign } = await fa();
+    expect((await fail(requireStaffIdentity(auth(await sign({}, "evil")), fenv, getKey)))?.status).toBe(401);
+    const other = await fa();
+    expect((await fail(requireStaffIdentity(auth(await other.sign({})), fenv, getKey)))?.status).toBe(401);
+    expect((await fail(requireStaffIdentity({}, fenv, getKey)))?.status).toBe(401);
+  });
+  it("lets STAFF_EMAIL_DOMAIN list several domains", async () => {
+    const { getKey, sign } = await fa();
+    const r = await requireStaffIdentity(auth(await sign({ email: "ops@ficium.mu" })), { ...fenv, STAFF_EMAIL_DOMAIN: "ficium.net, ficium.mu" }, getKey);
+    expect(r.email).toBe("ops@ficium.mu");
+  });
+});

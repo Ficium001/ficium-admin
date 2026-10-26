@@ -43,5 +43,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/auth/:path*",
+      "destination": "https://ficium-auth-production.up.railway.app/auth/:path*"
+    }
   ]
 }

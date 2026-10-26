@@ -1,4 +1,5 @@
 import type { OfferInput } from "../../api/_lib/offers";
+import { apiFetch } from "../auth/client";
 
 export type Status = "draft" | "approved" | "published" | "withdrawn";
 export type Offer = OfferInput & {
@@ -11,7 +12,7 @@ export type Offer = OfferInput & {
 export type Change = { id: number; changed_at: string; actor: string; action: string; reason: string | null };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(url, { credentials: "same-origin", ...init });
+  const r = await apiFetch(url, init);
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error ?? `Request failed (${r.status})`);
   return body as T;

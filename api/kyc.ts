@@ -28,7 +28,7 @@ export function makeHandler(deps: Deps) {
       staff = await deps.requireStaff(req.headers);
     } catch (e) {
       const status = e instanceof AuthError ? e.status : 401;
-      return res.status(status).json({ error: e instanceof Error ? e.message : "Not signed in" });
+      return res.status(status).json({ error: e instanceof Error ? e.message : "Not signed in", code: e instanceof AuthError ? e.code : undefined });
     }
     const meta = requestMeta(req.headers);
     try {

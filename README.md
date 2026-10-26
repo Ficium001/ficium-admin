@@ -9,17 +9,23 @@ Ficium's internal staff app. Not customer-facing. Modules:
 ## How it's protected
 
 ```
-browser ──► Cloudflare Access (company login + MFA) ──► Vercel ──► /api/* ──► Admin DB (Neon, app_admin)
-                                                                   │      as app_admin_backend: api.* only
-                                     verifies the Access JWT on    │      ↓ outbox (same transaction)
-                                     EVERY request; identity =     │  /api/outbox-dispatch ──► App DB
-                                     email + sub from the token,   │      as ficium_admin_sync:
-                                     never the browser             │      admin.sync_apply only
+browser ──/auth/* (Vercel rewrite)──► ficium-auth: password + TOTP MFA → RS256 access token (amr: mfa)
+        ──/api/* + Bearer token──► Vercel functions: verify token (JWKS, public key only) ──► Admin DB (Neon)
+                                    platform staff + MFA only      api.begin_session(sub, email, …)
 ```
 
-- **Fail closed.** No Access config → 503. No or invalid token → 401. Non-`@ficium.net` → 403.
-- **The Vercel URL is reachable directly**, bypassing Cloudflare. That's why the API verifies
-  the JWT itself; a direct visitor gets a page that can't load any data.
+- **Identity is ficium-auth** (decision 2026-10-26; Cloudflare Access remains a configuration-only
+  alternative). The API accepts a token only if it is RS256-signed by ficium-auth, belongs to the Ficium
+  platform institution (`PLATFORM_INSTITUTION_ID`), has a staff role (`STAFF_ROLES`, default
+  `super_admin`), a staff email domain (`STAFF_EMAIL_DOMAIN`) and **`amr` contains `mfa`**. A password-only
+  session gets `403 MFA_REQUIRED` and the app walks the user through TOTP enrolment.
+- **Then the admin DB decides**: the person must be an invited, active admin there, with the permission for
+  the action. Bank users can never get in: wrong institution, wrong role, not invited.
+- **Same-origin sign-in.** `/auth/*` is proxied to ficium-auth by a Vercel rewrite, so the CSP stays
+  `connect-src 'self'`, no CORS is needed, and the HttpOnly refresh cookie is first-party (works on Safari
+  and iOS). The access token is kept in memory only. Trade-off: ficium-auth sees Vercel's IP, so its
+  per-IP login throttle is shared by all admin users; per-account lockout and MFA still apply per person.
+- **Fail closed.** No identity provider configured → 503. No or invalid token → 401.
 - **No service key.** CI fails if one appears. The backend's DB role has no table access at all: every
   request is one transaction that starts with `api.begin_session(sub, email, …)`, and the admin DB decides
   who the admin is (invited by email, bound to the token subject on first sign-in) and what they may do.
