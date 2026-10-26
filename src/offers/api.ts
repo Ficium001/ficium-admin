@@ -6,6 +6,7 @@ export type Offer = OfferInput & {
   updated_by: string; updated_at: string; approved_by: string | null; approved_at: string | null;
   self_approved: boolean | null; published_by: string | null; published_at: string | null;
   withdrawn_by: string | null; withdrawn_at: string | null; is_live: boolean; live_until: string | null;
+  listed: boolean; listed_version: number | null;
 };
 export type Change = { id: number; changed_at: string; actor: string; action: string; reason: string | null };
 
@@ -22,10 +23,10 @@ export const listOffers = () => call<{ actor: string; offers: Offer[] }>("/api/o
 export const offerHistory = (id: string) => call<{ history: Change[] }>(`/api/offers?id=${encodeURIComponent(id)}`);
 export const saveOffer = (offer: OfferInput, id?: string, version?: number) =>
   post<{ offer: Offer }>({ action: "save", id: id ?? null, version: version ?? null, offer });
-export const approveOffer = (id: string, reason: string) => post<{ offer: Offer }>({ action: "approve", id, reason });
-export const publishOffer = (id: string) => post<{ offer: Offer }>({ action: "publish", id });
-export const withdrawOffer = (id: string, reason: string) => post<{ offer: Offer }>({ action: "withdraw", id, reason });
-export const reverifyOffer = (id: string, verified_at: string, reason: string) =>
-  post<{ offer: Offer }>({ action: "reverify", id, verified_at, reason });
+export const approveOffer = (id: string, version: number, reason: string) => post<{ offer: Offer }>({ action: "approve", id, version, reason });
+export const publishOffer = (id: string, version: number) => post<{ offer: Offer }>({ action: "publish", id, version });
+export const withdrawOffer = (id: string, version: number, reason: string) => post<{ offer: Offer }>({ action: "withdraw", id, version, reason });
+export const reverifyOffer = (id: string, version: number, verified_at: string, reason: string) =>
+  post<{ offer: Offer }>({ action: "reverify", id, version, verified_at, reason });
 export const uploadImage = (file: File) =>
   call<{ url: string }>("/api/offer-image", { method: "POST", headers: { "Content-Type": file.type }, body: file });

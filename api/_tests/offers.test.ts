@@ -1,16 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { makeHandler, type Deps } from "../offers.js";
+import { makeHandler } from "../offers.js";
 import { parseOffer } from "../_lib/offers.js";
 import { AuthError } from "../_lib/access.js";
+import { res, fakeAdmin, staffOk } from "./admin-harness.js";
 
-function res() {
-  const r: any = { code: 0, body: null, headers: {} as Record<string, string> };
-  r.status = (c: number) => { r.code = c; return r; };
-  r.json = (b: unknown) => { r.body = b; };
-  r.setHeader = (k: string, v: string) => { r.headers[k] = v; };
-  return r;
-}
-const staff = (email = "kj@ficium.net") => vi.fn(async () => email) as unknown as Deps["requireStaff"];
 const ID = "2b9e1c1e-6f1a-4c55-9d8e-0a1b2c3d4e5f";
 const good = {
   institution_name: "Bank A", category: "borrow", product_type: "leasing",
@@ -19,7 +12,11 @@ const good = {
   expires_at: "2026-12-31T23:59:59.000Z", verified_at: "2026-10-20T12:00:00.000Z",
   source_url: "https://bank.example/rates", consent_ref: "Email 21 Oct from J. Doe",
 };
-const okRows = vi.fn(async () => ({ rows: [{ offer: { id: ID } }] }));
+const answers = { "api.offer_save": { o: { id: ID } }, "api.offer_view(": { o: { id: ID, created_by: "kj@ficium.net" } },
+  "api.offer_view_list": { v: { actor: "kj@ficium.net", offers: [] } }, "api.offer_history": { h: [] } };
+const post = (b: Record<string, unknown>) => ({ method: "POST", headers: {}, body: b });
+const handler = (db = fakeAdmin(answers), kick = vi.fn(async () => undefined)) =>
+  ({ h: makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, kick }), db, kick });
 
 describe("parseOffer", () => {
   it("accepts a complete offer and normalises it", () => {
@@ -43,68 +40,82 @@ describe("parseOffer", () => {
   });
 });
 
-describe("POST /api/offers", () => {
-  it("saves through admin.offer_save with the verified actor, ignoring a browser-sent actor", async () => {
-    const query = vi.fn(async () => ({ rows: [{ offer: { id: ID } }] }));
-    const r = res();
-    await makeHandler({ requireStaff: staff(), query })({ method: "POST", headers: {}, body: { action: "save", offer: good, actor: "attacker@x.com" } }, r);
-    expect(r.code).toBe(200);
-    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain("admin.offer_save");
-    expect(params[2]).toBe("kj@ficium.net");
-    expect(params[0]).toBeNull();
+describe("POST /api/offers on the admin DB", () => {
+  it("creates through api.offer_save (no actor argument: the DB session is the actor) and returns the display view", async () => {
+    const { h, db, kick } = handler(); const r = res();
+    await h(post({ action: "save", offer: good, actor: "attacker@x.com" }), r);
+    expect(r.code).toBe(200); expect(r.body.offer.created_by).toBe("kj@ficium.net");
+    expect(db.calls[0]!.sql).toContain("api.offer_save");
+    expect(db.calls[0]!.params).toEqual([null, expect.any(String), null]);
+    expect(JSON.stringify(db.calls)).not.toContain("attacker");
+    expect(kick).not.toHaveBeenCalled();
   });
-  it("requires a version when editing", async () => {
-    const query = vi.fn(); const r = res();
-    await makeHandler({ requireStaff: staff(), query })({ method: "POST", headers: {}, body: { action: "save", id: ID, offer: good } }, r);
-    expect(r.code).toBe(400); expect(query).not.toHaveBeenCalled();
+  it("edits with the version the admin opened", async () => {
+    const { h, db } = handler(); const r = res();
+    await h(post({ action: "save", id: ID, version: 4, offer: good }), r);
+    expect(db.calls[0]!.params![2]).toBe(4);
   });
   it.each([
-    [{ action: "approve", id: ID, reason: "short" }, "reason"],
-    [{ action: "withdraw", id: ID, reason: "" }, "reason"],
-    [{ action: "publish", id: "not-a-uuid" }, "Unknown offer"],
-    [{ action: "reverify", id: ID, reason: "long enough reason" }, "Verification date"],
-    [{ action: "delete", id: ID }, "Unknown action"],
-  ])("rejects bad input %j before touching the DB", async (body, msg) => {
-    const query = vi.fn(); const r = res();
-    await makeHandler({ requireStaff: staff(), query })({ method: "POST", headers: {}, body }, r);
-    expect(r.code).toBe(400); expect(String(r.body.error)).toContain(msg); expect(query).not.toHaveBeenCalled();
+    [{ action: "save", id: ID, offer: good }, "version"],
+    [{ action: "approve", id: ID, version: 2, reason: "short" }, "reason"],
+    [{ action: "withdraw", id: ID, version: 2, reason: "" }, "reason"],
+    [{ action: "publish", id: ID }, "version"],
+    [{ action: "publish", id: "not-a-uuid", version: 1 }, "Unknown offer"],
+    [{ action: "reverify", id: ID, version: 2, reason: "long enough reason" }, "Verification date"],
+    [{ action: "delete", id: ID, version: 1 }, "Unknown action"],
+  ])("rejects %j before opening a session", async (b, msg) => {
+    const { h, db } = handler(); const r = res();
+    await h(post(b), r);
+    expect(r.code).toBe(400); expect(String(r.body.error)).toContain(msg); expect(db.withAdmin).not.toHaveBeenCalled();
   });
-  it("publishes through admin.offer_publish only", async () => {
-    const r = res(); okRows.mockClear();
-    await makeHandler({ requireStaff: staff(), query: okRows })({ method: "POST", headers: {}, body: { action: "publish", id: ID } }, r);
+  it.each([
+    ["publish", { }, "api.offer_publish", [ID, 3], true],
+    ["withdraw", { reason: "Bank withdrew the rate" }, "api.offer_withdraw", [ID, 3, "Bank withdrew the rate"], true],
+    ["reverify", { reason: "Checked on bank site", verified_at: "2026-10-24T12:00:00Z" }, "api.offer_reverify",
+      [ID, "2026-10-24T12:00:00.000Z", 3, "Checked on bank site"], true],
+    ["approve", { reason: "Rates match the bank site" }, "api.offer_approve", [ID, 3, "Rates match the bank site"], false],
+  ])("%s calls only its api function and pushes when borrowers are affected", async (action, extra, fn, params, pushes) => {
+    const { h, db, kick } = handler(); const r = res();
+    await h(post({ action, id: ID, version: 3, ...extra }), r);
     expect(r.code).toBe(200);
-    expect(okRows).toHaveBeenCalledWith(expect.stringContaining("admin.offer_publish"), [ID, "kj@ficium.net"]);
+    expect(db.calls[0]).toEqual({ sql: expect.stringContaining(fn), params });
+    expect(kick).toHaveBeenCalledTimes(pushes ? 1 : 0);
   });
   it("touches nothing when the caller isn't signed in", async () => {
-    const query = vi.fn(); const r = res();
-    const deny = vi.fn(async () => { throw new AuthError(401, "no"); }) as unknown as Deps["requireStaff"];
-    await makeHandler({ requireStaff: deny, query })({ method: "POST", headers: {}, body: { action: "publish", id: ID } }, r);
-    expect(r.code).toBe(401); expect(query).not.toHaveBeenCalled();
+    const db = fakeAdmin(); const r = res();
+    const deny = vi.fn(async () => { throw new AuthError(401, "no"); });
+    await makeHandler({ requireStaff: deny, withAdmin: db.withAdmin, kick: vi.fn() })(post({ action: "publish", id: ID, version: 1 }), r);
+    expect(r.code).toBe(401); expect(db.withAdmin).not.toHaveBeenCalled();
   });
-  it("maps DB errors: validation 400, stale version 409, anything else 500 without detail", async () => {
-    const run = async (err: unknown) => { const r = res();
-      await makeHandler({ requireStaff: staff(), query: vi.fn(async () => { throw err; }) })({ method: "POST", headers: {}, body: { action: "publish", id: ID } }, r);
-      return r; };
-    expect((await run(Object.assign(new Error("only an approved offer can be published"), { code: "22023" }))).code).toBe(400);
-    expect((await run(Object.assign(new Error("changed"), { code: "40001" }))).code).toBe(409);
-    const r = await run(new Error("password=hunter2"));
-    expect(r.code).toBe(500); expect(JSON.stringify(r.body)).not.toContain("hunter2");
+  it("maps maker-checker refusals to 403 with the DB's explanation, and does not push", async () => {
+    const err = Object.assign(new Error("maker-checker: the last editor cannot approve"), { code: "42501" });
+    const db = fakeAdmin({}, { match: "offer_approve", err }); const kick = vi.fn(); const r = res();
+    await makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, kick })(post({ action: "approve", id: ID, version: 2, reason: "Rates match the site" }), r);
+    expect(r.code).toBe(403); expect(r.body.error).toContain("maker-checker"); expect(kick).not.toHaveBeenCalled();
+  });
+  it("maps stale versions to 409 and hides unexpected errors", async () => {
+    const stale = fakeAdmin({}, { match: "offer_publish", err: Object.assign(new Error("changed"), { code: "40001" }) });
+    const r1 = res(); await makeHandler({ requireStaff: staffOk(), withAdmin: stale.withAdmin, kick: vi.fn() })(post({ action: "publish", id: ID, version: 1 }), r1);
+    expect(r1.code).toBe(409);
+    const boom = fakeAdmin({}, { match: "offer_publish", err: new Error("password=hunter2") });
+    const r2 = res(); await makeHandler({ requireStaff: staffOk(), withAdmin: boom.withAdmin, kick: vi.fn() })(post({ action: "publish", id: ID, version: 1 }), r2);
+    expect(r2.code).toBe(500); expect(JSON.stringify(r2.body)).not.toContain("hunter2");
   });
 });
 
-describe("GET /api/offers", () => {
-  it("never caches and validates the history id", async () => {
-    const r1 = res(), r2 = res();
-    const query = vi.fn(async () => ({ rows: [] }));
-    await makeHandler({ requireStaff: staff(), query })({ method: "GET", headers: {} }, r1);
-    expect(r1.headers["Cache-Control"]).toBe("no-store");
-    await makeHandler({ requireStaff: staff(), query })({ method: "GET", headers: {}, query: { id: "x;drop" } }, r2);
-    expect(r2.code).toBe(400);
+describe("GET /api/offers on the admin DB", () => {
+  it("lists through api.offer_view_list and never caches", async () => {
+    const { h, db } = handler(); const r = res();
+    await h({ method: "GET", headers: {} }, r);
+    expect(r.code).toBe(200); expect(r.body.actor).toBe("kj@ficium.net");
+    expect(db.calls.map((c) => c.sql).join(" ")).not.toMatch(/\b(public|admin|offers)\./);
+    expect(r.headers["Cache-Control"]).toBe("no-store");
   });
-  it("reads only admin.* tables", async () => {
-    const query = vi.fn(async () => ({ rows: [] })); const r = res();
-    await makeHandler({ requireStaff: staff(), query })({ method: "GET", headers: {} }, r);
-    expect(String((query.mock.calls[0] as unknown as [string])[0])).not.toMatch(/public\./);
+  it("validates the history id and reads history from the audit view", async () => {
+    const { h, db } = handler(); const r1 = res(), r2 = res();
+    await h({ method: "GET", headers: {}, query: { id: "x;drop" } }, r1);
+    expect(r1.code).toBe(400);
+    await h({ method: "GET", headers: {}, query: { id: ID } }, r2);
+    expect(r2.code).toBe(200); expect(db.calls[0]!.sql).toContain("api.offer_history");
   });
 });

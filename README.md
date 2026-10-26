@@ -9,33 +9,34 @@ Ficium's internal staff app. Not customer-facing. Modules:
 ## How it's protected
 
 ```
-browser ──► Cloudflare Access (company login + MFA) ──► Vercel ──► /api/kyc ──► App DB
-                                                                   │
-                                     verifies the Access JWT on    │  connects as ficium_admin_app:
-                                     EVERY request; actor = email  │  read settings + history,
-                                     from the token, never the     │  change only via the audited
-                                     browser                       │  admin.set_kyc_check
+browser ──► Cloudflare Access (company login + MFA) ──► Vercel ──► /api/* ──► Admin DB (Neon, app_admin)
+                                                                   │      as app_admin_backend: api.* only
+                                     verifies the Access JWT on    │      ↓ outbox (same transaction)
+                                     EVERY request; identity =     │  /api/outbox-dispatch ──► App DB
+                                     email + sub from the token,   │      as ficium_admin_sync:
+                                     never the browser             │      admin.sync_apply only
 ```
 
 - **Fail closed.** No Access config → 503. No or invalid token → 401. Non-`@ficium.net` → 403.
 - **The Vercel URL is reachable directly**, bypassing Cloudflare. That's why the API verifies
   the JWT itself; a direct visitor gets a page that can't load any data.
-- **No service key.** CI fails if one appears. The DB role cannot write tables directly.
-- **Every change is audited** in `admin.kyc_settings_change`: who, old → new, reason, when.
+- **No service key.** CI fails if one appears. The backend's DB role has no table access at all: every
+  request is one transaction that starts with `api.begin_session(sub, email, …)`, and the admin DB decides
+  who the admin is (invited by email, bound to the token subject on first sign-in) and what they may do.
+- **Every change is audited** in the admin DB's append-only, hash-chained `audit.event` (who, before →
+  after, reason, request id, IP). KYC changes are also mirrored into the App DB's
+  `admin.kyc_settings_change` when they are applied there.
 
 ## Deploy
 
 The app **fails closed**: until Cloudflare Access is configured it answers 503 to everything, and a direct
 visit to the `*.vercel.app` URL without an Access token gets 401. Deploying first is safe.
 
-### 1. Database role password (you, in Supabase — never paste it into a chat)
-Supabase -> project **Ficium** -> SQL editor. Generate ~40 random letters/digits in a password manager
-(letters and digits only, so the connection string needs no escaping), then run:
-
-    ALTER ROLE ficium_admin_app LOGIN PASSWORD '<the password>';
-
-The role can read KYC settings and their history and change a check only through the audited
-`admin.set_kyc_check`; it cannot write tables, and it is capped at 6 connections.
+### 1. Database logins (you — never paste passwords into a chat)
+Created in the Neon SQL Editor with `neondb` selected (never with the console's *Add role* button, which
+grants `neon_superuser`): `app_admin_backend` (in role `app_admin_api`) and `app_admin_worker` (in role
+`app_admin_dispatcher`). See [`db/admin-db/README.md`](db/admin-db/README.md). App DB side:
+`ALTER ROLE ficium_admin_sync LOGIN PASSWORD '…'` in the Supabase SQL editor. Letters and digits only.
 
 ### 2. Vercel project
 Vercel -> Add New -> Project -> import `Ficium001/ficium-admin` (grant the Vercel GitHub app access to this
@@ -43,12 +44,15 @@ private repo if asked). Framework preset: **Vite** (auto-detected). Environment 
 
 | Name | Value |
 |---|---|
-| `ADMIN_DATABASE_URL` | Supabase -> Connect -> *Transaction pooler* string; change the user to `ficium_admin_app.<project-ref>`, set the password from step 1 |
+| `ADMIN_DB_API_URL` | Neon pooled host, user `app_admin_backend`, database `app_admin` (no `?sslmode`) |
+| `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`, `CRON_SECRET` | see *Publish path* below |
 | `STAFF_EMAIL_DOMAIN` | `ficium.net` |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | leave unset until step 4 (the app stays closed) |
 
 Settings -> Deployment Protection: keep **Vercel Authentication** on so preview URLs are not public.
-Note: Vercel Hobby is non-commercial only; this is part of a commercial product, so use Pro.
+Secrets are managed in **Doppler** (`ficium-admin/prd`, synced to Vercel Production); don't edit them in Vercel.
+Note: Vercel Hobby is non-commercial only. Staying on Hobby is a deliberate choice for the working model;
+move to Pro before real customers.
 
 ### 3. Domain
 Add the admin address (e.g. `admin.ficium.net`) in Vercel -> Domains, and create the DNS record Vercel shows.
@@ -75,11 +79,13 @@ draft ──approve (reason)──► approved ──publish──► published 
   └──────────────── any edit sends it back to draft ──┘   (live version stays until republished)
 ```
 
-- Writes only through `admin.offer_save / _approve / _publish / _withdraw / _reverify`; every action is in
-  `admin.offer_change` (append-only) with a full snapshot.
+- Writes only through the admin DB's `api.offer_save / _approve / _publish / _withdraw / _reverify`, each
+  with the version the admin opened (a stale screen gets 409). Every action is in `audit.event` with a
+  before/after snapshot. Publish, re-verify and withdraw reach `public.offer_listing` through the outbox.
 - Approval refuses an offer without image + description, source link, provider consent reference, a
-  future expiry, and rates verified within 30 days. Self-approval is allowed while Ficium has one staff
-  member, and is recorded (`self_approved`) rather than hidden.
+  future expiry, and rates verified within 30 days. **Maker-checker is enforced** while
+  `platform.maker_checker_on` is true: the last editor cannot approve (decision 2026-10-25), so a second
+  admin (e.g. `compliance` role) is needed to approve offers.
 - A published offer leaves the borrower feed on its own at expiry or 30 days after the last verification.
   Use *Record re-verification* to keep it live.
 - **Images** go to the public Vercel Blob store `ficium-admin-blob` (region `bom1`, path `offers/…`,
@@ -92,13 +98,11 @@ draft ──approve (reason)──► approved ──publish──► published 
 - The borrower app only renders images from `*.public.blob.vercel-storage.com` and only reads
   `public.offer_listing`. This app never reads borrower tables.
 
-## Admin database (Neon) — in progress
+## Admin database (Neon)
 
-The app is moving off the App DB `admin` schema onto its own databases
-(`app_admin`, `portal_admin`) on Neon project `Ficium_admin`. Migrations,
-roles and design: [`db/admin-db/README.md`](db/admin-db/README.md). The pages
-above still use the App DB until the cut-over. No real customer data goes
-into Neon before the paid-plan / PITR / IP-allowlist gate in that README.
+Since 2026-10-25 the pages use the admin DB (`app_admin` on Neon project `Ficium_admin`), not the App DB
+`admin` schema. Migrations, roles and design: [`db/admin-db/README.md`](db/admin-db/README.md). No real
+customer data goes into Neon before the paid-plan / PITR / IP-allowlist gate in that README.
 
 ### Publish path (admin DB → App DB)
 
@@ -135,5 +139,5 @@ cp .env.example .env.local   # set ALLOW_DEV_AUTH=1 and DEV_ACTOR; ignored on Ve
 npx vercel dev
 ```
 
-Check names and descriptions live in `api/_lib/checks.ts`. The keys must match
-`public.kyc_settings` and the allowlist in `admin.set_kyc_check`; the DB is the final authority.
+Check names and descriptions live in `api/_lib/checks.ts`. The keys must match `kyc.check_setting` in the
+admin DB and `public.kyc_settings` / `admin._sync_kyc` in the App DB; the databases are the final authority.

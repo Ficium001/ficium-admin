@@ -218,11 +218,11 @@ function Workflow({ offer, busy, run }: { offer: Offer; busy: boolean; run: (fn:
       {offer.status === "draft" && <>
         <p className="hint">Approval checks the image, source link, consent reference, expiry, and that rates were verified in the last {VERIFY_DAYS} days.</p>
         {reasonBox("What did you check?", "e.g. Rates and terms match the provider's sheet dated 21 Oct")}
-        <div className="actions"><button className="primary" disabled={!ok || busy} onClick={() => run(() => approveOffer(offer.id, reason.trim()))}>Approve</button></div>
+        <div className="actions"><button className="primary" disabled={!ok || busy} onClick={() => run(() => approveOffer(offer.id, offer.version, reason.trim()))}>Approve</button></div>
       </>}
       {offer.status === "approved" && <>
         <p className="hint">Publishing makes this offer visible to every signed-in borrower.</p>
-        <div className="actions"><button className="primary" disabled={busy} onClick={() => run(() => publishOffer(offer.id))}>Publish to borrowers</button></div>
+        <div className="actions"><button className="primary" disabled={busy} onClick={() => run(() => publishOffer(offer.id, offer.version))}>Publish to borrowers</button></div>
       </>}
       {offer.status === "published" && <>
         <div className="fld">
@@ -231,8 +231,8 @@ function Workflow({ offer, busy, run }: { offer: Offer; busy: boolean; run: (fn:
         </div>
         {reasonBox("Reason", "e.g. Provider confirmed rates unchanged by email")}
         <div className="actions">
-          <button className="ghost destructive-ghost" disabled={!ok || busy} onClick={() => run(() => withdrawOffer(offer.id, reason.trim()))}>Withdraw now</button>
-          <button className="primary" disabled={!ok || busy} onClick={() => run(() => reverifyOffer(offer.id, new Date(`${verified}T12:00:00`).toISOString(), reason.trim()))}>Record re-verification</button>
+          <button className="ghost destructive-ghost" disabled={!ok || busy} onClick={() => run(() => withdrawOffer(offer.id, offer.version, reason.trim()))}>Withdraw now</button>
+          <button className="primary" disabled={!ok || busy} onClick={() => run(() => reverifyOffer(offer.id, offer.version, new Date(`${verified}T12:00:00`).toISOString(), reason.trim()))}>Record re-verification</button>
         </div>
       </>}
       {offer.status === "withdrawn" && <p className="muted">Withdrawn {fmt(offer.withdrawn_at)} by {offer.withdrawn_by}. Withdrawn offers stay withdrawn; create a new offer to list it again.</p>}

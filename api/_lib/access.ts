@@ -23,10 +23,21 @@ function keysFor(teamDomain: string): JWTVerifyGetKey {
 type Env = Record<string, string | undefined>;
 type Headers = Record<string, string | string[] | undefined>;
 
+export type Staff = { email: string; sub: string };
+
+/** Email only — kept for endpoints that just need to know a staff member is calling. */
 export async function requireStaff(headers: Headers, env: Env = process.env, getKey?: JWTVerifyGetKey): Promise<string> {
+  return (await requireStaffIdentity(headers, env, getKey)).email;
+}
+
+/**
+ * Verified email + stable subject. The subject (the token's `sub`) is what the
+ * admin DB binds an invited admin to on first sign-in.
+ */
+export async function requireStaffIdentity(headers: Headers, env: Env = process.env, getKey?: JWTVerifyGetKey): Promise<Staff> {
   if (env.ALLOW_DEV_AUTH === "1" && !env.VERCEL && !env.VERCEL_ENV) {
     if (!env.DEV_ACTOR) throw new AuthError(503, "DEV_ACTOR must be set when ALLOW_DEV_AUTH=1");
-    return env.DEV_ACTOR;
+    return { email: env.DEV_ACTOR.trim().toLowerCase(), sub: `dev:${env.DEV_ACTOR.trim().toLowerCase()}` };
   }
   const team = env.CF_ACCESS_TEAM_DOMAIN;  // e.g. ficium.cloudflareaccess.com
   const aud = env.CF_ACCESS_AUD;           // Application Audience (AUD) tag
@@ -44,7 +55,9 @@ export async function requireStaff(headers: Headers, env: Env = process.env, get
     if (!email) throw new AuthError(403, "Your Access identity has no email");
     const allowed = (env.STAFF_EMAIL_DOMAIN ?? "ficium.net").toLowerCase();
     if (!email.endsWith(`@${allowed}`)) throw new AuthError(403, "Only Ficium staff accounts can use this app");
-    return email;
+    const sub = typeof payload.sub === "string" && payload.sub.length > 0 ? payload.sub : "";
+    if (!sub) throw new AuthError(403, "Your Access identity has no subject");
+    return { email, sub: `cf-access:${sub}` };
   } catch (e) {
     if (e instanceof AuthError) throw e;
     throw new AuthError(401, "Your Access session is invalid or expired. Reload to sign in again");

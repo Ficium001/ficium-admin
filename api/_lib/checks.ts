@@ -1,6 +1,6 @@
 /**
- * The 10 KYC checks. Keys must match public.kyc_settings columns and the
- * allowlist inside admin.set_kyc_check — the DB is the final authority, this
+ * The 10 KYC checks. Keys must match kyc.check_setting in the admin DB and
+ * public.kyc_settings / admin._sync_kyc in the App DB — the DBs are the final authority, this
  * list exists so the app can reject unknown keys early and describe each one.
  * `critical`: switching it off means verification no longer proves the
  * applicant is a real, unique person who holds the ID.

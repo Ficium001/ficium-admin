@@ -4,7 +4,7 @@
  * Stores the image in Vercel Blob under offers/. The URL is unguessable but
  * public; it only appears to borrowers once an offer using it is approved and
  * published. Auth is Vercel OIDC + BLOB_STORE_ID (no long-lived blob token);
- * this app still has no database or Supabase keys beyond the ficium_admin_app role.
+ * this app holds no Supabase keys; its only DB logins are single-purpose roles.
  */
 import { randomUUID } from "node:crypto";
 import { requireStaff, AuthError } from "./_lib/access.js";
