@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import KycPage from "./kyc/KycPage";
 import OffersPage from "./offers/OffersPage";
+import Gate from "./auth/Gate";
 
 const SECTIONS = [
   { key: "kyc", label: "KYC checks" },
@@ -17,13 +18,13 @@ export default function App() {
     return () => window.removeEventListener("hashchange", on);
   }, []);
   return (
-    <>
+    <Gate>
       <nav className="sections" aria-label="Admin sections">
         {SECTIONS.map((s) => (
           <a key={s.key} href={`#${s.key}`} aria-current={section === s.key ? "page" : undefined}>{s.label}</a>
         ))}
       </nav>
       {section === "offers" ? <OffersPage /> : <KycPage />}
-    </>
+    </Gate>
   );
 }
