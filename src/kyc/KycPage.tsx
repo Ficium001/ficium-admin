@@ -17,7 +17,7 @@ export default function KycPage() {
 
   if (error && !state) return <main className="shell"><p className="fatal" role="alert">{error}</p></main>;
   if (!state) return <main className="shell"><p className="muted">Loading KYC checks…</p></main>;
-  if (!state.settings) return <main className="shell"><p className="fatal" role="alert">No KYC settings row found in the borrower database.</p></main>;
+  if (!state.settings) return <main className="shell"><p className="fatal" role="alert">No KYC settings found in the admin database.</p></main>;
 
   const off = CHECKS.filter((c) => state.settings![c.key] === false);
   const criticalOff = off.filter((c) => c.critical);
@@ -55,7 +55,7 @@ export default function KycPage() {
                 </button>
               </div>
               {open && <Confirm check={c} value={pending!.value} onCancel={() => setPending(null)}
-                onSave={async (reason) => { await change(c.key, pending!.value, reason); setPending(null); await refresh(); }} />}
+                onSave={async (reason) => { await change(c.key, pending!.value, reason, state.versions[c.key] ?? 1); setPending(null); await refresh(); }} />}
             </li>
           );
         })}

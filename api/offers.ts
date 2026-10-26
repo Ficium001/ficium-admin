@@ -1,51 +1,50 @@
 /**
  * GET  /api/offers                 -> { actor, offers }
- * GET  /api/offers?id=<uuid>       -> { history }   (change log for one offer)
+ * GET  /api/offers?id=<uuid>       -> { history }   (from the audit log)
  * POST /api/offers { action, ... } -> { offer }
- *   action: save (id?, version?, offer) | approve (id, reason) | publish (id)
- *         | withdraw (id, reason) | reverify (id, verified_at, reason)
- * Every write goes through an admin.offer_* function; the actor is always the
- * verified Access identity, never anything the browser sends.
+ *   save (id?, version?, offer) | approve (id, version, reason) | publish (id, version)
+ *   | withdraw (id, version, reason) | reverify (id, version, verified_at, reason)
+ * Every write is an api.offer_* call in the admin DB (maker-checker, versioning
+ * and audit enforced there). Listing changes reach the App DB right after commit.
  */
-import { requireStaff, AuthError } from "./_lib/access.js";
-import { db } from "./_lib/db.js";
+import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
+import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { parseOffer, isUuid, MIN_REASON } from "./_lib/offers.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
 
-export type Deps = { requireStaff: typeof requireStaff; query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> };
-const live: Deps = { requireStaff, query: (sql, params) => db().query(sql, params) };
+export type Deps = {
+  requireStaff: (h: Req["headers"]) => Promise<Staff>;
+  withAdmin: <T>(s: Staff, m: Meta, fn: (q: Q) => Promise<T>) => Promise<T>;
+  kick: () => Promise<void>;
+};
+const live: Deps = { requireStaff: (h) => requireStaffIdentity(h), withAdmin, kick: kickDispatch };
 
-// "Live" is derived from admin.offer alone (same rule as the listing's
-// live_until), so the admin app never reads borrower-side tables.
-const LIST = `select o.*,
-    (o.status = 'published' and o.expires_at > now() and o.verified_at > now() - interval '30 days') as is_live,
-    least(o.expires_at, o.verified_at + interval '30 days') as live_until
-  from admin.offer o order by o.updated_at desc limit 200`;
+const offerView = async (q: Q, id: string) => (await q("select api.offer_view($1) as o", [id])).rows[0]?.o ?? null;
 
 export function makeHandler(deps: Deps) {
   return async function handler(req: Req, res: Res) {
     res.setHeader("Cache-Control", "no-store");
-    let actor: string;
+    let staff: Staff;
     try {
-      actor = await deps.requireStaff(req.headers);
+      staff = await deps.requireStaff(req.headers);
     } catch (e) {
       const status = e instanceof AuthError ? e.status : 401;
       return res.status(status).json({ error: e instanceof Error ? e.message : "Not signed in" });
     }
-
+    const meta = requestMeta(req.headers);
     try {
       if (req.method === "GET") {
         const id = req.query?.id;
         if (id !== undefined) {
           if (!isUuid(id)) return res.status(400).json({ error: "Unknown offer" });
-          const h = await deps.query(
-            "select id, changed_at, actor, action, reason from admin.offer_change where offer_id = $1 order by changed_at desc limit 100", [id]);
-          return res.status(200).json({ history: h.rows });
+          const history = await deps.withAdmin(staff, meta, async (q) =>
+            (await q("select api.offer_history($1) as h", [id])).rows[0]?.h ?? []);
+          return res.status(200).json({ history });
         }
-        const r = await deps.query(LIST);
-        return res.status(200).json({ actor, offers: r.rows });
+        const v = await deps.withAdmin(staff, meta, async (q) => (await q("select api.offer_view_list() as v")).rows[0]?.v);
+        return res.status(200).json({ actor: v?.actor ?? staff.email, offers: v?.offers ?? [] });
       }
 
       if (req.method === "POST") {
@@ -53,48 +52,52 @@ export function makeHandler(deps: Deps) {
         const action = b?.action;
         const reason = typeof b?.reason === "string" ? b.reason.trim() : "";
         const needReason = () => reason.length < MIN_REASON ? `Give a reason of at least ${MIN_REASON} characters` : null;
-        const one = async (sql: string, params: unknown[]) => (await deps.query(sql, params)).rows[0]?.offer ?? null;
+        const version = Number(b?.version);
+        const badVersion = !Number.isInteger(version) || version < 1;
 
         if (action === "save") {
           const parsed = parseOffer(b?.offer);
           if (!parsed.ok) return res.status(400).json({ error: parsed.error });
           const id = b?.id ?? null;
           if (id !== null && !isUuid(id)) return res.status(400).json({ error: "Unknown offer" });
-          const version = id === null ? null : Number(b?.version);
-          if (id !== null && !Number.isInteger(version)) return res.status(400).json({ error: "version is required when editing" });
-          const offer = await one("select admin.offer_save($1, $2::jsonb, $3, $4) as offer", [id, JSON.stringify(parsed.data), actor, version]);
+          if (id !== null && badVersion) return res.status(400).json({ error: "version is required when editing" });
+          const offer = await deps.withAdmin(staff, meta, async (q) => {
+            const saved = (await q("select api.offer_save($1, $2::jsonb, $3) as o",
+              [id, JSON.stringify(parsed.data), id === null ? null : version])).rows[0]?.o;
+            return offerView(q, saved.id);
+          });
           return res.status(200).json({ offer });
         }
 
         if (!isUuid(b?.id)) return res.status(400).json({ error: "Unknown offer" });
         const id = b!.id as string;
-        if (action === "approve") {
-          const e = needReason(); if (e) return res.status(400).json({ error: e });
-          return res.status(200).json({ offer: await one("select admin.offer_approve($1, $2, $3) as offer", [id, actor, reason]) });
-        }
-        if (action === "publish") {
-          return res.status(200).json({ offer: await one("select admin.offer_publish($1, $2) as offer", [id, actor]) });
-        }
-        if (action === "withdraw") {
-          const e = needReason(); if (e) return res.status(400).json({ error: e });
-          return res.status(200).json({ offer: await one("select admin.offer_withdraw($1, $2, $3) as offer", [id, actor, reason]) });
-        }
+        if (!["approve", "publish", "withdraw", "reverify"].includes(String(action))) return res.status(400).json({ error: "Unknown action" });
+        if (badVersion) return res.status(400).json({ error: "version is required" });
+        if (action !== "publish") { const e = needReason(); if (e) return res.status(400).json({ error: e }); }
+        let verifiedAt: string | null = null;
         if (action === "reverify") {
-          const e = needReason(); if (e) return res.status(400).json({ error: e });
           const at = typeof b?.verified_at === "string" ? Date.parse(b.verified_at) : NaN;
           if (Number.isNaN(at)) return res.status(400).json({ error: "Verification date is required" });
-          return res.status(200).json({ offer: await one("select admin.offer_reverify($1, $2, $3, $4) as offer", [id, actor, new Date(at).toISOString(), reason]) });
+          verifiedAt = new Date(at).toISOString();
         }
-        return res.status(400).json({ error: "Unknown action" });
+
+        const offer = await deps.withAdmin(staff, meta, async (q) => {
+          if (action === "approve") await q("select api.offer_approve($1, $2, $3)", [id, version, reason]);
+          if (action === "publish") await q("select api.offer_publish($1, $2)", [id, version]);
+          if (action === "withdraw") await q("select api.offer_withdraw($1, $2, $3)", [id, version, reason]);
+          if (action === "reverify") await q("select api.offer_reverify($1, $2, $3, $4)", [id, verifiedAt, version, reason]);
+          return offerView(q, id);
+        });
+        if (action !== "approve") await deps.kick();  // approve changes nothing borrowers see
+        return res.status(200).json({ offer });
       }
 
       res.setHeader("Allow", "GET, POST");
       return res.status(405).json({ error: "Method not allowed" });
     } catch (e: any) {
       if (e instanceof SyntaxError) return res.status(400).json({ error: "Body must be JSON" });
-      if (e?.code === "22023") return res.status(400).json({ error: String(e.message) });
-      if (e?.code === "40001") return res.status(409).json({ error: "Someone changed this offer since you opened it. Reload and try again" });
-      if (e?.code === "23514" || e?.code === "22P02" || e?.code === "22007") return res.status(400).json({ error: "One of the fields isn't valid" });
+      const m = dbError(e);
+      if (m) return res.status(m.status).json({ error: m.error });
       console.error("offers admin error", e?.code, e?.message);
       return res.status(500).json({ error: "The change could not be saved. Nothing was changed" });
     }

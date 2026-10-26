@@ -10,7 +10,7 @@ async function setup() {
   const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256" };
   const getKey = createLocalJWKSet({ keys: [jwk] });
   const sign = (claims: Record<string, unknown>, o: { aud?: string; iss?: string; exp?: string } = {}) =>
-    new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: "k1" }).setIssuedAt()
+    new SignJWT({ sub: "cf-user-1", ...claims }).setProtectedHeader({ alg: "RS256", kid: "k1" }).setIssuedAt()
       .setAudience(o.aud ?? AUD).setIssuer(o.iss ?? `https://${TEAM}`).setExpirationTime(o.exp ?? "5m").sign(privateKey);
   return { getKey, sign };
 }
@@ -52,5 +52,27 @@ describe("requireStaff", () => {
     expect(await requireStaff({}, bypass)).toBe("dev@ficium.net");
     expect(await status(requireStaff({}, { ...bypass, VERCEL: "1" }))).toBe(503);
     expect(await status(requireStaff({}, { ...bypass, VERCEL_ENV: "production" }))).toBe(503);
+  });
+});
+
+import { requireStaffIdentity } from "../_lib/access.js";
+describe("requireStaffIdentity", () => {
+  it("returns a namespaced dev subject only outside Vercel", async () => {
+    const env = { ALLOW_DEV_AUTH: "1", DEV_ACTOR: "Dev@Ficium.net" };
+    expect(await requireStaffIdentity({}, env)).toEqual({ email: "dev@ficium.net", sub: "dev:dev@ficium.net" });
+    await expect(requireStaffIdentity({}, { ...env, VERCEL: "1" })).rejects.toMatchObject({ status: 503 });
+  });
+});
+
+describe("requireStaffIdentity with Access tokens", () => {
+  it("returns email + namespaced subject", async () => {
+    const { getKey, sign } = await setup();
+    const t = await sign({ email: "KJ@ficium.net", sub: "a1b2" });
+    expect(await requireStaffIdentity({ "cf-access-jwt-assertion": t }, env, getKey)).toEqual({ email: "kj@ficium.net", sub: "cf-access:a1b2" });
+  });
+  it("refuses a token without a subject", async () => {
+    const { getKey, sign } = await setup();
+    const t = await sign({ email: "kj@ficium.net", sub: undefined });
+    expect(await status(requireStaffIdentity({ "cf-access-jwt-assertion": t }, env, getKey))).toBe(403);
   });
 });

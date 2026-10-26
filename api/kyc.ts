@@ -1,53 +1,62 @@
 /**
- * GET  /api/kyc  -> { actor, settings, history }
- * POST /api/kyc  { key, value, reason } -> { settings }
- * The actor recorded in the audit log is the verified Access identity, never
- * anything the browser sends.
+ * GET  /api/kyc                               -> { actor, settings, versions, history }
+ * POST /api/kyc { key, value, version, reason } -> { settings, versions }
+ * The admin DB is the master; a change is pushed to the App DB right after it
+ * commits (and retried hourly). The actor is the verified Access identity.
  */
-import { requireStaff, AuthError } from "./_lib/access.js";
-import { db } from "./_lib/db.js";
-import { isCheckKey, MIN_REASON } from "./_lib/checks.js";
+import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
+import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
+import { CHECKS, MIN_REASON } from "./_lib/checks.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
 
-export type Deps = { requireStaff: typeof requireStaff; query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> };
-const live: Deps = { requireStaff, query: (sql, params) => db().query(sql, params) };
+export type Deps = {
+  requireStaff: (h: Req["headers"]) => Promise<Staff>;
+  withAdmin: <T>(s: Staff, m: Meta, fn: (q: Q) => Promise<T>) => Promise<T>;
+  kick: () => Promise<void>;
+};
+const live: Deps = { requireStaff: (h) => requireStaffIdentity(h), withAdmin, kick: kickDispatch };
+const KEYS = new Set<string>(CHECKS.map((c) => c.key));
+const view = async (q: Q) => (await q("select api.kyc_view() as v")).rows[0]?.v ?? null;
 
 export function makeHandler(deps: Deps) {
   return async function handler(req: Req, res: Res) {
     res.setHeader("Cache-Control", "no-store");
-    let actor: string;
+    let staff: Staff;
     try {
-      actor = await deps.requireStaff(req.headers);
+      staff = await deps.requireStaff(req.headers);
     } catch (e) {
       const status = e instanceof AuthError ? e.status : 401;
       return res.status(status).json({ error: e instanceof Error ? e.message : "Not signed in" });
     }
-
+    const meta = requestMeta(req.headers);
     try {
-      if (req.method === "GET") {
-        const [s, h] = await Promise.all([
-          deps.query("select * from public.kyc_settings where id = 1"),
-          deps.query("select id, changed_at, check_key, old_value, new_value, actor, reason from admin.kyc_settings_change order by changed_at desc limit 100"),
-        ]);
-        return res.status(200).json({ actor, settings: s.rows[0] ?? null, history: h.rows });
-      }
+      if (req.method === "GET") return res.status(200).json(await deps.withAdmin(staff, meta, view));
 
       if (req.method === "POST") {
         const b = (typeof req.body === "string" ? JSON.parse(req.body) : req.body) as Record<string, unknown> | undefined;
-        const key = b?.key, value = b?.value, reason = typeof b?.reason === "string" ? b.reason.trim() : "";
-        if (!isCheckKey(key)) return res.status(400).json({ error: "Unknown check" });
+        const key = b?.key, value = b?.value, version = Number(b?.version);
+        const reason = typeof b?.reason === "string" ? b.reason.trim() : "";
+        if (typeof key !== "string" || !KEYS.has(key)) return res.status(400).json({ error: "Unknown check" });
         if (typeof value !== "boolean") return res.status(400).json({ error: "value must be true or false" });
+        if (!Number.isInteger(version) || version < 1) return res.status(400).json({ error: "version is required" });
         if (reason.length < MIN_REASON) return res.status(400).json({ error: `Give a reason of at least ${MIN_REASON} characters` });
-        const r = await deps.query("select admin.set_kyc_check($1, $2, $3, $4) as settings", [key, value, actor, reason]);
-        return res.status(200).json({ settings: r.rows[0]?.settings ?? null });
+
+        const v = await deps.withAdmin(staff, meta, async (q) => {
+          await q("select api.kyc_set_check($1, $2, $3, $4)", [key, value, version, reason]);
+          return view(q);
+        });
+        await deps.kick();
+        return res.status(200).json({ settings: v?.settings ?? null, versions: v?.versions ?? {} });
       }
 
       res.setHeader("Allow", "GET, POST");
       return res.status(405).json({ error: "Method not allowed" });
     } catch (e: any) {
-      if (e?.code === "22023") return res.status(400).json({ error: String(e.message) });
+      if (e instanceof SyntaxError) return res.status(400).json({ error: "Body must be JSON" });
+      const m = dbError(e);
+      if (m) return res.status(m.status).json({ error: m.error });
       console.error("kyc admin error", e?.code, e?.message);
       return res.status(500).json({ error: "The change could not be saved. Nothing was changed" });
     }
