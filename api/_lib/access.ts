@@ -16,7 +16,14 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 export class AuthError extends Error {
-  constructor(public status: 401 | 403 | 503, message: string, public code?: "MFA_REQUIRED") { super(message); }
+  constructor(public status: 401 | 403 | 503, message: string, public code?: string) { super(message); }
+}
+
+/** Why a token failed, as a jose error code (+claim). Contains no token content. */
+export function joseReason(e: unknown): string {
+  const err = e as { code?: unknown; claim?: unknown } | null;
+  const code = typeof err?.code === "string" ? err.code : "ERR_UNKNOWN";
+  return typeof err?.claim === "string" ? `${code}:${err.claim}` : code;
 }
 
 const PLATFORM_INSTITUTION = "00000000-0000-0000-0000-000000000001";
@@ -91,8 +98,10 @@ async function ficiumAuthIdentity(headers: Headers, env: Env, getKey?: JWTVerify
     ({ payload } = await jwtVerify(h.slice(7), getKey ?? ficiumAuthKeys(env.FICIUM_AUTH_URL!), {
       issuer: "ficium-auth", audience: "authenticated", algorithms: ["RS256"],
     }));
-  } catch {
-    throw new AuthError(401, "Your session is invalid or expired. Sign in again");
+  } catch (e) {
+    const reason = joseReason(e);
+    console.warn("ficium-auth token rejected", reason);
+    throw new AuthError(401, "Your session is invalid or expired. Sign in again", reason);
   }
   const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
   const sub = typeof payload.sub === "string" ? payload.sub : "";
