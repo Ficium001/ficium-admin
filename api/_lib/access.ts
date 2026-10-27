@@ -96,7 +96,9 @@ async function ficiumAuthIdentity(headers: Headers, env: Env, getKey?: JWTVerify
   let payload: Record<string, unknown>;
   try {
     ({ payload } = await jwtVerify(h.slice(7), getKey ?? ficiumAuthKeys(env.FICIUM_AUTH_URL!), {
-      issuer: "ficium-auth", audience: "authenticated", algorithms: ["RS256"],
+      // Production ficium-auth sets JWT_AUDIENCE=ficium-portal (portal-api checks the same);
+      // its code default "authenticated" is NOT what production issues.
+      issuer: env.FICIUM_AUTH_ISSUER ?? "ficium-auth", audience: env.FICIUM_AUTH_AUDIENCE ?? "ficium-portal", algorithms: ["RS256"],
     }));
   } catch (e) {
     const reason = joseReason(e);

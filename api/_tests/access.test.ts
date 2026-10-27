@@ -83,11 +83,11 @@ describe("ficium-auth tokens", () => {
     const { publicKey, privateKey } = await generateKeyPair("RS256");
     const jwk = { ...(await exportJWK(publicKey)), kid: "ficium-auth-rs256-v1", alg: "RS256" };
     const getKey = createLocalJWKSet({ keys: [jwk] });
-    const sign = (claims: Record<string, unknown>, iss = "ficium-auth") =>
+    const sign = (claims: Record<string, unknown>, iss = "ficium-auth", aud = "ficium-portal") =>
       new SignJWT({ sub: "u-1", email: "KJ@ficium.net", institution_id: "00000000-0000-0000-0000-000000000001",
         user_role: "super_admin", amr: ["pwd", "otp", "mfa"], ...claims })
         .setProtectedHeader({ alg: "RS256", kid: "ficium-auth-rs256-v1" }).setIssuedAt()
-        .setAudience("authenticated").setIssuer(iss).setExpirationTime("5m").sign(privateKey);
+        .setAudience(aud).setIssuer(iss).setExpirationTime("5m").sign(privateKey);
     return { getKey, sign };
   }
   const auth = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -130,5 +130,20 @@ describe("token rejection reasons", () => {
     const { joseReason } = await import("../_lib/access.js");
     expect(joseReason({ code: "ERR_JWT_CLAIM_VALIDATION_FAILED", claim: "iss" })).toBe("ERR_JWT_CLAIM_VALIDATION_FAILED:iss");
     expect(joseReason(new Error("x"))).toBe("ERR_UNKNOWN");
+  });
+});
+
+describe("ficium-auth audience", () => {
+  it("accepts production's aud (ficium-portal) and rejects others with a reason", async () => {
+    const { generateKeyPair: g, exportJWK: x, createLocalJWKSet: c, SignJWT: S } = await import("jose");
+    const { publicKey, privateKey } = await g("RS256");
+    const getKey = c({ keys: [{ ...(await x(publicKey)), kid: "k", alg: "RS256" }] });
+    const tok = (aud: string) => new S({ sub: "u", email: "kj@ficium.net", institution_id: "00000000-0000-0000-0000-000000000001",
+      user_role: "super_admin", amr: ["pwd", "otp", "mfa"] }).setProtectedHeader({ alg: "RS256", kid: "k" })
+      .setIssuedAt().setIssuer("ficium-auth").setAudience(aud).setExpirationTime("5m").sign(privateKey);
+    const env = { FICIUM_AUTH_URL: "https://auth.example" };
+    expect((await requireStaffIdentity({ authorization: `Bearer ${await tok("ficium-portal")}` }, env, getKey)).email).toBe("kj@ficium.net");
+    await expect(requireStaffIdentity({ authorization: `Bearer ${await tok("authenticated")}` }, env, getKey))
+      .rejects.toMatchObject({ status: 401, code: "ERR_JWT_CLAIM_VALIDATION_FAILED:aud" });
   });
 });
