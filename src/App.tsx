@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import KycPage from "./kyc/KycPage";
 import OffersPage from "./offers/OffersPage";
 import Gate from "./auth/Gate";
+import ResetPassword from "./auth/ResetPassword";
 
 const SECTIONS = [
   { key: "kyc", label: "KYC checks" },
@@ -11,6 +12,11 @@ type Section = (typeof SECTIONS)[number]["key"];
 const fromHash = (): Section => (window.location.hash === "#offers" ? "offers" : "kyc");
 
 export default function App() {
+  if (window.location.pathname === "/reset-password") return <ResetPassword />;
+  return <Admin />;
+}
+
+function Admin() {
   const [section, setSection] = useState<Section>(fromHash);
   useEffect(() => {
     const on = () => setSection(fromHash());

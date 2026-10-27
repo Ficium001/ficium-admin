@@ -48,6 +48,10 @@
     {
       "source": "/auth/:path*",
       "destination": "https://ficium-auth-production.up.railway.app/auth/:path*"
+    },
+    {
+      "source": "/reset-password",
+      "destination": "/index.html"
     }
   ]
 }

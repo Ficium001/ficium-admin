@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  AuthFailure, changePassword, claims, enrolConfirm, enrolStart, hasMfa, isSignedIn,
-  login, logout, onAuthChange, refresh, verifyMfa,
+  AuthFailure, changePassword, claims, enrolConfirm, enrolStart, forgotPassword, hasMfa, isSignedIn,
+  login, logout, onAuthChange, refresh, strongPassword, verifyMfa,
 } from "./client";
 
 type View =
-  | { v: "loading" } | { v: "signin" } | { v: "code"; mfaToken: string }
+  | { v: "loading" } | { v: "signin" } | { v: "forgot" } | { v: "code"; mfaToken: string }
   | { v: "password" } | { v: "enrol" } | { v: "codes"; codes: string[] } | { v: "in" };
 
 const routeAfterToken = (mustChange = false): View =>
@@ -29,6 +29,7 @@ export default function Gate({ children }: { children: ReactNode }) {
     <main className="shell auth">
       <h1>Ficium Admin</h1>
       {view.v === "signin" && <SignIn onNext={setView} />}
+      {view.v === "forgot" && <Forgot onBack={() => setView({ v: "signin" })} />}
       {view.v === "code" && <Code mfaToken={view.mfaToken} onNext={setView} />}
       {view.v === "password" && <NewPassword onNext={setView} />}
       {view.v === "enrol" && <Enrol onNext={setView} />}
@@ -59,7 +60,10 @@ function SignIn({ onNext }: { onNext: (v: View) => void }) {
       <label htmlFor="p">Password</label>
       <input id="p" type="password" autoComplete="current-password" value={p} onChange={(e) => setP(e.target.value)} required />
       {s.err && <p className="err" role="alert">{s.err}</p>}
-      <div className="actions"><button className="primary" disabled={s.busy || !u || !p}>{s.busy ? "Signing in…" : "Sign in"}</button></div>
+      <div className="actions">
+        <button type="button" className="ghost" onClick={() => onNext({ v: "forgot" })}>Forgot password?</button>
+        <button className="primary" disabled={s.busy || !u || !p}>{s.busy ? "Signing in…" : "Sign in"}</button>
+      </div>
       <p className="hint">Ficium staff only. Two-factor authentication is required.</p>
     </form>
   );
@@ -86,13 +90,14 @@ function Code({ mfaToken, onNext }: { mfaToken: string; onNext: (v: View) => voi
 
 function NewPassword({ onNext }: { onNext: (v: View) => void }) {
   const [p, setP] = useState(""); const [q, setQ] = useState(""); const s = useSubmit();
-  const ok = p.length >= 12 && p === q;
+  const ok = strongPassword(p) && p === q;
   return (
     <form className="panel form" onSubmit={(e) => { e.preventDefault(); s.run(async () => {
       await changePassword(p); onNext(routeAfterToken());
     }); }}>
       <p>Choose a new password before continuing.</p>
-      <label htmlFor="np">New password (12+ characters)</label>
+      <label htmlFor="np">New password</label>
+      <p className="hint">12+ characters with upper and lower case, a number and a symbol.</p>
       <input id="np" type="password" autoComplete="new-password" value={p} onChange={(e) => setP(e.target.value)} required />
       <label htmlFor="nq">Repeat it</label>
       <input id="nq" type="password" autoComplete="new-password" value={q} onChange={(e) => setQ(e.target.value)} required />
@@ -134,5 +139,26 @@ function BackupCodes({ codes, onDone }: { codes: string[]; onDone: () => void })
       <label className="check"><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I've saved them somewhere safe</label>
       <div className="actions"><button className="primary" disabled={!saved} onClick={onDone}>Sign in with two-factor</button></div>
     </section>
+  );
+}
+
+function Forgot({ onBack }: { onBack: () => void }) {
+  const [u, setU] = useState(""); const [sent, setSent] = useState(false); const s = useSubmit();
+  if (sent) return (
+    <section className="panel form">
+      <p>If <strong>{u.trim().toLowerCase()}</strong> is a Ficium staff account, a reset link is on its way to the account's email. It works once and expires in 1 hour.</p>
+      <div className="actions"><button className="primary" onClick={onBack}>Back to sign in</button></div>
+    </section>
+  );
+  return (
+    <form className="panel form" onSubmit={(e) => { e.preventDefault(); s.run(async () => { await forgotPassword(u); setSent(true); }); }}>
+      <label htmlFor="fu">Username</label>
+      <input id="fu" autoComplete="username" value={u} onChange={(e) => setU(e.target.value)} required autoFocus />
+      {s.err && <p className="err" role="alert">{s.err}</p>}
+      <div className="actions">
+        <button type="button" className="ghost" onClick={onBack}>Back</button>
+        <button className="primary" disabled={s.busy || !u.trim()}>{s.busy ? "Sending…" : "Email me a reset link"}</button>
+      </div>
+    </form>
   );
 }
