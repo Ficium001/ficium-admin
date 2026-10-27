@@ -12,10 +12,12 @@
  */
 import pg from "pg";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
+import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
 let neon: pg.Pool | null = null;
 let app: pg.Pool | null = null;
 let warned = false;
+let warnedLegacy = false;
 
 function need(name: string): string {
   const v = process.env[name];
@@ -82,14 +84,24 @@ export function liveDeps(): DispatchDeps {
            from api.outbox_claim($1, $2)`, [limit, leaseSeconds]);
       return r.rows as OutboxEvent[];
     },
-    async apply(e) {
-      const r = await appPool().query(
-        "select admin.sync_apply($1::uuid, $2, $3, $4, $5::bigint, $6::jsonb) as outcome",
-        [e.id, e.topic, e.aggregate_type, e.aggregate_id, e.aggregate_version, JSON.stringify(e.payload)]);
-      return r.rows[0].outcome as Outcome;
-    },
+    // HTTPS to the app's API when configured (the target). The direct App DB
+    // connection below is legacy and goes away once every deployment has
+    // APP_ADMIN_SYNC_URL + APP_ADMIN_SYNC_SIGNING_KEY.
+    apply: appSyncConfigured() ? appSyncApply() : legacyApply,
     async ack(id) { await neonPool().query("select api.outbox_ack($1::uuid)", [id]); },
     async nack(id, error) { await neonPool().query("select api.outbox_nack($1::uuid, $2)", [id, error]); },
     now: () => Date.now(),
   };
+}
+
+/** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */
+async function legacyApply(e: OutboxEvent): Promise<Outcome> {
+  if (!warnedLegacy) {
+    warnedLegacy = true;
+    console.warn("admin sync uses the direct App DB connection: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY");
+  }
+  const r = await appPool().query(
+    "select admin.sync_apply($1::uuid, $2, $3, $4, $5::bigint, $6::jsonb) as outcome",
+    [e.id, e.topic, e.aggregate_type, e.aggregate_id, e.aggregate_version, JSON.stringify(e.payload)]);
+  return r.rows[0].outcome as Outcome;
 }
