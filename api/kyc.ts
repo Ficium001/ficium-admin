@@ -7,6 +7,7 @@
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { CHECKS, MIN_REASON } from "./_lib/checks.js";
+import { onlyOn } from "./_lib/site.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -63,4 +64,4 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default makeHandler(live);
+export default onlyOn("app", makeHandler(live));

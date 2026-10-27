@@ -8,6 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { requireStaff, AuthError } from "./_lib/access.js";
+import { onlyOn } from "./_lib/site.js";
 
 type Req = AsyncIterable<Buffer | string> & { method?: string; headers: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -75,4 +76,4 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default makeHandler(live);
+export default onlyOn("app", makeHandler(live));

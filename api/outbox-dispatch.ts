@@ -10,6 +10,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { dispatch, type Stats } from "./_lib/outbox.js";
 import { liveDeps } from "./_lib/sync-db.js";
+import { onlyOn } from "./_lib/site.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -40,4 +41,4 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default makeHandler({ run: () => dispatch(liveDeps()), env: process.env });
+export default onlyOn("app", makeHandler({ run: () => dispatch(liveDeps()), env: process.env }));

@@ -39,6 +39,55 @@ browser ──/auth/* (Vercel rewrite)──► ficium-auth: password + TOTP MFA
   after, reason, request id, IP). KYC changes are also mirrored into the App DB's
   `admin.kyc_settings_change` when they are applied there.
 
+## Two sites, one codebase
+
+The same repo deploys as **two separate Vercel projects**. Nothing is shared at runtime: each has
+its own admin database, its own credentials and its own URL.
+
+| | App admin | Portal admin |
+|---|---|---|
+| `ADMIN_SITE` / `VITE_ADMIN_SITE` | `app` (default) | `portal` |
+| Modules | KYC checks, Offers, Team | Compliance, Team |
+| Admin DB (`ADMIN_DB_API_URL`) | Neon `app_admin` | Neon `portal_admin` |
+| Reaches the product | App DB sync (to move to HTTPS) | portal-api `/internal/admin/v1` over HTTPS only |
+
+An endpoint that belongs to the other site answers 404, so a misrouted call cannot touch the
+wrong product.
+
+**Rule: services talk through APIs, never through each other's databases.** The portal admin site
+has no Portal DB credentials at all. It reads and changes bank data only through portal-api's
+`/internal/admin/v1` endpoints. Every call is HMAC-signed with `ADMIN_PORTAL_SIGNING_KEY` (same
+`Ficium-Signature` scheme as the integration contract) **and** carries the signed-in staff
+member's own ficium-auth token, which portal-api re-verifies (platform staff, MFA). Neither a
+leaked key nor a stolen token is enough alone.
+
+Compliance flow: document reviews are decided by one reviewer. Waivers are four-eyes: one admin
+asks, a different admin approves, enforced in the admin DB and again by portal-api. For a change,
+the admin-DB transaction stays open across the portal call; if the portal refuses or is
+unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
+`command_id`, so a retry never applies twice.
+
+### Deploying the portal admin site
+
+1. Vercel -> Add New -> Project -> import `Ficium001/ficium-admin` again, name it e.g.
+   `ficium-portal-admin`. Framework preset: Vite.
+2. Environment variables (Production only):
+
+| Name | Value |
+|---|---|
+| `ADMIN_SITE`, `VITE_ADMIN_SITE` | `portal` |
+| `ADMIN_DB_API_URL` | Neon pooled host, user `portal_admin_backend`, database `portal_admin` |
+| `FICIUM_AUTH_URL`, `PLATFORM_INSTITUTION_ID`, `STAFF_ROLES`, `STAFF_EMAIL_DOMAIN` | same as the app admin site |
+| `PORTAL_API_URL` | `https://<portal-api host>` |
+| `ADMIN_PORTAL_SIGNING_KEY` | a new random key (`openssl rand -hex 32`); put the same value in portal-api's `ADMIN_COMMAND_VERIFY_KEYS` on Railway |
+
+3. Neon: create the login `portal_admin_backend` (in role `portal_admin_api`) in the SQL editor,
+   as for `app_admin_backend`. Never paste its password into a chat.
+4. No Vercel cron and no `ADMIN_DB_WORKER_URL` / `APP_DB_*` on this project: the portal site has
+   no outbox worker and no App DB access.
+
+Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance` (2026-10-27).
+
 ## Deploy
 
 The app **fails closed**: until Cloudflare Access is configured it answers 503 to everything, and a direct
