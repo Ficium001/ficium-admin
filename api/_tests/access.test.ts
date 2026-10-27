@@ -124,3 +124,11 @@ describe("ficium-auth tokens", () => {
     expect(r.email).toBe("ops@ficium.mu");
   });
 });
+
+describe("token rejection reasons", () => {
+  it("reports why, without token content", async () => {
+    const { joseReason } = await import("../_lib/access.js");
+    expect(joseReason({ code: "ERR_JWT_CLAIM_VALIDATION_FAILED", claim: "iss" })).toBe("ERR_JWT_CLAIM_VALIDATION_FAILED:iss");
+    expect(joseReason(new Error("x"))).toBe("ERR_UNKNOWN");
+  });
+});
