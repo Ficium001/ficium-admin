@@ -76,6 +76,11 @@ export async function enrolConfirm(code: string): Promise<string[]> {
   return b.backup_codes;
 }
 export const changePassword = (newPassword: string) => post("password/force-change", { new_password: newPassword }, true);
+/** Always answers the same way, whether or not the account exists. */
+export const forgotPassword = (username: string) => post("password/forgot", { username: username.trim().toLowerCase() });
+export const resetPassword = (token: string, newPassword: string) => post("password/reset", { token, new_password: newPassword });
+export const strongPassword = (p: string) =>
+  p.length >= 12 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p);
 
 /**
  * fetch() for this app's /api: adds the bearer token, refreshes once on 401.
