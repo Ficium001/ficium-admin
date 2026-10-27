@@ -11,6 +11,9 @@
     },
     "api/outbox-dispatch.ts": {
       "maxDuration": 30
+    },
+    "api/team.ts": {
+      "maxDuration": 15
     }
   },
   "headers": [
