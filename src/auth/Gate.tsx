@@ -1,3 +1,4 @@
+import { SITE_NAME } from "../site";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   AuthFailure, changePassword, claims, enrolConfirm, enrolStart, forgotPassword, hasMfa, isSignedIn,
@@ -27,7 +28,7 @@ export default function Gate({ children }: { children: ReactNode }) {
   );
   return (
     <main className="shell auth">
-      <h1>Ficium Admin</h1>
+      <h1>{SITE_NAME}</h1>
       {view.v === "signin" && <SignIn onNext={setView} />}
       {view.v === "forgot" && <Forgot onBack={() => setView({ v: "signin" })} />}
       {view.v === "code" && <Code mfaToken={view.mfaToken} onNext={setView} />}
