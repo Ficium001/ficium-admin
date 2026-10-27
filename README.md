@@ -49,7 +49,7 @@ its own admin database, its own credentials and its own URL.
 | `ADMIN_SITE` / `VITE_ADMIN_SITE` | `app` (default) | `portal` |
 | Modules | KYC checks, Offers, Team | Compliance, Team |
 | Admin DB (`ADMIN_DB_API_URL`) | Neon `app_admin` | Neon `portal_admin` |
-| Reaches the product | App DB sync (to move to HTTPS) | portal-api `/internal/admin/v1` over HTTPS only |
+| Reaches the product | app `/api/internal?op=admin-sync` over HTTPS (signed) | portal-api `/internal/admin/v1` over HTTPS only |
 
 An endpoint that belongs to the other site answers 404, so a misrouted call cannot touch the
 wrong product.
@@ -66,6 +66,21 @@ asks, a different admin approves, enforced in the admin DB and again by portal-a
 the admin-DB transaction stays open across the portal call; if the portal refuses or is
 unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
 `command_id`, so a retry never applies twice.
+
+### Switching the app site's sync to HTTPS
+
+The outbox worker delivers to the borrower app's API when both of these are set on the **app
+admin** project (otherwise it still uses the legacy `APP_DB_SYNC_URL` connection and logs a
+warning):
+
+| Name | Value |
+|---|---|
+| `APP_ADMIN_SYNC_URL` | `https://<borrower app host>/api/internal?op=admin-sync` |
+| `APP_ADMIN_SYNC_SIGNING_KEY` | new random key; the same value goes in the `ficium` Vercel project as `ADMIN_SYNC_VERIFY_KEYS` |
+
+After one successful sync over HTTPS: delete `APP_DB_SYNC_URL` and `APP_DB_CA_CERT` here, and
+remove LOGIN from `ficium_admin_sync` on the App DB. Then no service holds credentials to
+another service's database.
 
 ### Deploying the portal admin site
 
