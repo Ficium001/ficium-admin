@@ -5,6 +5,12 @@ Ficium's internal staff app. Not customer-facing. Modules:
 - **KYC checks** — turn verification checks on or off, with a required reason and a full change history.
 - **Offers** — create, approve, publish, re-verify and withdraw the provider offers shown in the borrower
   app's Offers feed. See *Offers* below.
+- **Team** — invite Ficium staff, change their roles, suspend or disable them. An invite is one admin-DB
+  transaction (`api.iam_invite`, needs `iam.manage`) that also creates the person's ficium-auth login
+  *as the inviter* (`POST /auth/staff/provision`, which itself requires an MFA staff token). New logins get
+  the ficium-auth role `ficium_staff` (no bank-portal powers). The set-password link (24 h, single use) is
+  emailed to the invitee only — never shown to the inviter — so invites need working email (Resend).
+  Nobody can change their own roles or status.
 
 ## How it's protected
 

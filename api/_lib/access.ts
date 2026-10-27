@@ -111,7 +111,7 @@ async function ficiumAuthIdentity(headers: Headers, env: Env, getKey?: JWTVerify
   if (payload.institution_id !== (env.PLATFORM_INSTITUTION_ID ?? PLATFORM_INSTITUTION)) {
     throw new AuthError(403, "Only Ficium staff accounts can use this app");
   }
-  if (!list(env.STAFF_ROLES, "super_admin").includes(String(payload.user_role ?? "").toLowerCase())) {
+  if (!list(env.STAFF_ROLES, "super_admin,ficium_staff").includes(String(payload.user_role ?? "").toLowerCase())) {
     throw new AuthError(403, "Your account is not a Ficium staff role");
   }
   const domains = list(env.STAFF_EMAIL_DOMAIN, "ficium.net");
