@@ -12,6 +12,9 @@
     "api/outbox-dispatch.ts": {
       "maxDuration": 30
     },
+    "api/audit.ts": {
+      "maxDuration": 15
+    },
     "api/institutions.ts": {
       "maxDuration": 15
     },

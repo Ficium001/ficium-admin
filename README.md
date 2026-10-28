@@ -101,7 +101,7 @@ another service's database.
 4. No Vercel cron and no `ADMIN_DB_WORKER_URL` / `APP_DB_*` on this project: the portal site has
    no outbox worker and no App DB access.
 
-Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests` (2026-10-27).
+Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests`, `0004_require_permission` (2026-10-27).
 
 `0003` is the one four-eyes workflow for every portal change: each op portal-api accepts is a row in `governance.op` (who may ask, who may approve). New modules add rows there, not new tables.
 

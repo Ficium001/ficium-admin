@@ -20,6 +20,21 @@ describe("/api/institutions (portal admin site)", () => {
     expect(r.body.institutions).toEqual([{ name: "MCB" }]);
     expect(r.body.catalog).toEqual([{ module_code: "AUTOBID" }]);
     expect(p).toHaveBeenCalledWith("query", { op: "institutions.list", args: {} }, "staff-token");
+    expect(db.calls[0]!.sql).toContain("api.require_permission('institutions.read')");
+  });
+
+  it("GET refuses before asking portal-api when the admin lacks institutions.read", async () => {
+    const db = fakeAdmin({}, { match: "require_permission", err: { code: "42501", message: "permission denied: institutions.read" } });
+    const p = vi.fn(); const r = res();
+    await makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal: p as any })({ method: "GET", headers: H }, r);
+    expect(r.code).toBe(403); expect(p).not.toHaveBeenCalled();
+  });
+
+  it("view=groups returns the read-only role templates", async () => {
+    const db = fakeAdmin(); const p = vi.fn(async () => [{ slug: "bank_officer" }]); const r = res();
+    await makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal: p as any })({ method: "GET", headers: H, query: { view: "groups" } } as any, r);
+    expect(r.code).toBe(200); expect(r.body.groups).toEqual([{ slug: "bank_officer" }]);
+    expect(p).toHaveBeenCalledWith("query", { op: "groups.list", args: {} }, "staff-token");
   });
 
   it("a request is only stored in the admin DB; portal-api is not called", async () => {
