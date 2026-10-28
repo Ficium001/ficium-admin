@@ -2,6 +2,7 @@
  * Portal admin site only. Banks: approval, suspension and module entitlements.
  *
  * GET  /api/institutions                     -> { institutions, catalog, requests }
+ * GET  /api/institutions?view=groups         -> { groups }  (read-only role templates)
  * POST /api/institutions { action, ... }
  *   request   { op, institution_id, institution_name, reason, module_code?, status?, plan_tier?, valid_to? }
  *   approve   { id, version, note? }   four-eyes: never the person who asked
@@ -18,7 +19,7 @@ import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/portal-api.js";
 import { onlyOn } from "./_lib/site.js";
 
-type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
+type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
 
 export type Deps = {
@@ -34,6 +35,7 @@ const OPS = new Set(["institution.approve", "institution.suspend", "entitlement.
 const STATUSES = new Set(["active", "trial", "suspended", "expired"]);
 const TIERS = new Set(["trial", "standard", "professional", "enterprise"]);
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 class Bad extends Error {}
 const need = (ok: boolean, msg: string) => { if (!ok) throw new Bad(msg); };
@@ -82,7 +84,14 @@ export function makeHandler(deps: Deps) {
 
     try {
       if (req.method === "GET") {
-        const requests = await deps.withAdmin(staff, meta, list);
+        // The bank list lives in the portal: check the permission in the admin DB first.
+        const requests = await deps.withAdmin(staff, meta, async (q) => {
+          await q("select api.require_permission('institutions.read')");
+          return list(q);
+        });
+        if (one(req.query?.view) === "groups") {
+          return res.status(200).json({ groups: await deps.portal("query", { op: "groups.list", args: {} }, actor) });
+        }
         const [institutions, catalog] = await Promise.all([
           deps.portal("query", { op: "institutions.list", args: {} }, actor),
           deps.portal("query", { op: "entitlements.catalog", args: {} }, actor),
