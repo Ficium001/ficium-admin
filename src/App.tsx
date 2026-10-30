@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import KycPage from "./kyc/KycPage";
+import ReviewsPage from "./kyc-reviews/ReviewsPage";
 import OffersPage from "./offers/OffersPage";
 import TeamPage from "./team/TeamPage";
 import CompliancePage from "./compliance/CompliancePage";
@@ -13,7 +14,7 @@ import { SITE, SITE_NAME } from "./site";
 // Each site only shows (and its API only serves) its own modules.
 const SECTIONS = SITE === "portal"
   ? [{ key: "institutions", label: "Banks" }, { key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const
-  : [{ key: "kyc", label: "KYC checks" }, { key: "offers", label: "Offers" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const;
+  : [{ key: "kyc", label: "KYC checks" }, { key: "reviews", label: "KYC reviews" }, { key: "offers", label: "Offers" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const;
 type Section = (typeof SECTIONS)[number]["key"];
 const fromHash = (): Section => {
   const k = window.location.hash.slice(1);
@@ -46,6 +47,7 @@ function Admin() {
         : section === "compliance" ? <CompliancePage />
         : section === "offers" ? <OffersPage />
         : section === "team" ? <TeamPage />
+        : section === "reviews" ? <ReviewsPage />
         : <KycPage />}
     </Gate>
   );
