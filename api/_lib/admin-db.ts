@@ -70,6 +70,7 @@ export function dbError(e: any): { status: number; error: string } | null {
     case "22023": return { status: 400, error: String(e.message) };
     case "P0002": return { status: 404, error: String(e.message) };
     case "40001": return { status: 409, error: "Someone changed this since you opened it. Reload and try again" };
+    case "23505": return { status: 409, error: String(e.message) };
     case "42501": return { status: 403, error: String(e.message) };
     case "28000": return { status: 403, error: "You are not an active admin of this app" };
     case "23502": case "23503": case "23514": case "22P02": case "22007": case "22008":

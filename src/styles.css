@@ -118,3 +118,12 @@ h1, h2, p { margin: 0; }
 .auth .check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
 .session { max-width: 760px; margin: 0 auto; padding: 12px 20px 0; display: flex; justify-content: flex-end; align-items: center; gap: 12px; font-size: 0.85rem; color: var(--steel); }
 .session button { font: inherit; font-size: 0.8rem; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+
+/* KYC reviews */
+.cases { list-style: none; padding: 0; display: grid; gap: 6px; }
+.case-row { width: 100%; text-align: left; font: inherit; background: #fff; border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.case-row:hover { border-color: var(--ink); }
+.docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.docs figure { margin: 0; }
+.docs img { width: 100%; max-height: 240px; object-fit: contain; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; }
+.docs figcaption { font-size: 0.8rem; color: var(--steel); margin-top: 4px; }
