@@ -8,6 +8,14 @@ const deps = (db: any, site: "app" | "portal" = "portal", portal = vi.fn(async (
   ({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal, site: () => site });
 
 describe("/api/audit", () => {
+  it.each(["app", "portal"] as const)("health source reads api.ops_health_view on the %s site, never portal-api", async (site) => {
+    const h = { healthy: false, alerts: ["x"] }; const portal = vi.fn();
+    const db = fakeAdmin({ "api.ops_health_view": { v: h } }); const r = res();
+    await makeHandler(deps(db, site, portal as any))(get({ source: "health" }), r);
+    expect(r.code).toBe(200); expect(r.body).toEqual({ source: "health", health: h });
+    expect(db.calls[0]!.sql).toContain("api.ops_health_view"); expect(portal).not.toHaveBeenCalled();
+  });
+
   it("admin source reads this site's chain through api.audit_search (which enforces audit.read)", async () => {
     const db = fakeAdmin({ "api.audit_search": { v: [{ chain_pos: 3 }] } }); const r = res();
     await makeHandler(deps(db, "app"))(get({ before: "10" }), r);

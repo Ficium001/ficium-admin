@@ -2,7 +2,8 @@
 
 Ficium's internal staff app. Not customer-facing. Modules:
 
-- **KYC checks** — turn verification checks on or off, with a required reason and a full change history.
+- **KYC checks** — turn a verification check on (immediate) or ask to turn it off (a second admin must
+  approve; never your own request), with a required reason and a full change history.
 - **Offers** — create, approve, publish, re-verify and withdraw the provider offers shown in the borrower
   app's Offers feed. See *Offers* below.
 - **Team** — invite Ficium staff, change their roles, suspend or disable them. An invite is one admin-DB
@@ -101,7 +102,11 @@ another service's database.
 4. No Vercel cron and no `ADMIN_DB_WORKER_URL` / `APP_DB_*` on this project: the portal site has
    no outbox worker and no App DB access.
 
-Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests`, `0004_require_permission` (2026-10-27).
+Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests`, `0004_require_permission` (2026-10-27), `0005_ops_health` (2026-10-30).
+
+**Alerts.** The app admin's hourly dispatcher logs `ALERT ops health …` when the audit chain fails
+verification, a sync event is dead-lettered, or a change has waited over 2 hours. Route that log line
+to email or Slack with a Vercel log drain; until then it is visible on the Audit page of each site.
 
 `0003` is the one four-eyes workflow for every portal change: each op portal-api accepts is a row in `governance.op` (who may ask, who may approve). New modules add rows there, not new tables.
 

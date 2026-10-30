@@ -18,6 +18,32 @@ async function fetchEvents(source: Source, before: string, prefix: string) {
   return b.events as (AdminEvent | PortalEvent)[];
 }
 
+type Health = { healthy: boolean; alerts: string[]; at: string;
+  outbox: { pending: number; dead: number; oldest_pending_s: number | null; last_dispatched_at: string | null } | null;
+  chain: { ok: boolean; mode: string; checked: number; head_pos: number | null; head_hash: string | null; checked_at: string } | null };
+
+function HealthBanner() {
+  const [h, setH] = useState<Health | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    apiFetch("/api/audit?source=health").then(async (r) => {
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error ?? `Health check failed (${r.status})`);
+      setH(b.health as Health);
+    }).catch((x) => setErr(x.message));
+  }, []);
+  if (err) return <section className="status warn" role="status"><p><strong>System health is unavailable.</strong> {err}</p></section>;
+  if (!h) return null;
+  return (
+    <section className={`status ${h.healthy ? "ok" : "danger"}`} role={h.healthy ? "status" : "alert"}>
+      {h.healthy
+        ? <p><strong>Audit log verified.</strong> {h.chain ? `${h.chain.head_pos ?? 0} entries, last checked ${fmt(h.chain.checked_at)}.` : ""}
+            {h.outbox ? ` Sync: ${h.outbox.pending} waiting, none failed.` : ""}</p>
+        : <><p><strong>Needs attention.</strong></p><ul>{h.alerts.map((a) => <li key={a}>{a}</li>)}</ul></>}
+    </section>
+  );
+}
+
 export default function AuditPage() {
   const [source, setSource] = useState<Source>(SITE === "portal" ? "portal" : "admin");
   const [prefix, setPrefix] = useState("");
@@ -40,6 +66,7 @@ export default function AuditPage() {
     <main className="shell">
       <header className="top"><h1>Audit log</h1></header>
       <p className="lead muted">Read-only. Entries cannot be edited or deleted.</p>
+      <HealthBanner />
       {SITE === "portal" && (
         <nav className="sections" aria-label="Audit source">
           <a href="#audit" aria-current={source === "portal" ? "page" : undefined} onClick={(e) => { e.preventDefault(); setSource("portal"); }}>Portal (banks)</a>

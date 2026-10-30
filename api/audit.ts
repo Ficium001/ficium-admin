@@ -1,6 +1,9 @@
 /**
- * GET /api/audit?source=admin|portal&before=&institution_id=&action_prefix=
+ * GET /api/audit?source=admin|portal|health&before=&institution_id=&action_prefix=
  *
+ * source=health (both sites): this site's ops health (audit-chain verification,
+ * outbox backlog and dead letters) via api.ops_health_view, which enforces
+ * audit.read. Counts and hashes only.
  * Both sites. source=admin (default): this site's own admin-DB audit chain
  * (who did what in the admin site), via api.audit_search, which enforces
  * audit.read itself. source=portal (portal site only): the portal's audit
@@ -42,6 +45,10 @@ export function makeHandler(deps: Deps) {
     const source = one(req.query?.source) || "admin";
     const before = one(req.query?.before);
     try {
+      if (source === "health") {
+        const health = await deps.withAdmin(staff, meta, async (q) => (await q("select api.ops_health_view() as v")).rows[0]?.v ?? null);
+        return res.status(200).json({ source, health });
+      }
       if (source === "admin") {
         if (before && !/^\d+$/.test(before)) return res.status(400).json({ error: "before must be a position number" });
         const events = await deps.withAdmin(staff, meta, async (q) =>
