@@ -42,9 +42,24 @@ cross-border transfer basis.** The Neon free tier gives 6 hours of history.
   `SELECT * FROM audit.verify_chain();` recomputes the chain and reports the
   first tampered position. Tested: a superuser edit with triggers disabled
   is detected.
-- **Maker-checker** on offers while `platform.maker_checker_on` is true:
-  the last editor cannot approve. With a single admin, offers cannot be
-  approved until a second admin (compliance role) exists. That is intended.
+- **Maker-checker** on offers: the last editor cannot approve. With a single
+  admin, offers cannot be approved until a second admin (compliance role)
+  exists. That is intended. `platform.maker_checker_on` and
+  `platform.kyc_required` are **locked** (0006): `api.config_set` refuses
+  them and a CHECK pins both to true, so only a reviewed migration can change
+  them.
+- **KYC checks are four-eyes to switch off** (0006). Turning a check on is
+  immediate (stricter). Turning one off is a request (`kyc.change`) that a
+  different admin approves (`kyc.approve`); it expires after 72 h or as soon
+  as the check changes in between.
+- **Ops health** (0006 app_admin, 0005 portal_admin). `ops.chain_check`
+  records every audit-chain verification: incremental (re-hashes the last
+  verified row plus new rows, so the cost stays flat) with a full re-hash at
+  least daily. App admin: the hourly dispatcher runs `api.ops_health_check`
+  and logs the chain head hash (a copy outside the database) and any
+  `ALERT ops health` line; dead letters and a backlog over 2 h are alerts.
+  Portal admin: verified when staff open the Audit page (at most every
+  10 min). Both sites show the result on the Audit page.
 - **Optimistic concurrency** on every mutation (`p_expected_version`):
   two admins editing the same record cannot overwrite each other.
 - **Outbox, not dual writes.** Changes the borrower app must see

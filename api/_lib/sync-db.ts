@@ -94,6 +94,18 @@ export function liveDeps(): DispatchDeps {
   };
 }
 
+export type Health = {
+  healthy: boolean; alerts: string[];
+  outbox: { pending: number; dead: number; oldest_pending_s: number | null } | null;
+  chain: { ok: boolean; mode: string; head_pos: number | null; head_hash: string | null } | null;
+};
+
+/** Verifies the audit chain and reads the outbox state (api.ops_health_check, worker role). */
+export async function healthCheck(): Promise<Health> {
+  const r = await neonPool().query("select api.ops_health_check() as h");
+  return r.rows[0].h as Health;
+}
+
 /** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */
 async function legacyApply(e: OutboxEvent): Promise<Outcome> {
   if (!warnedLegacy) {

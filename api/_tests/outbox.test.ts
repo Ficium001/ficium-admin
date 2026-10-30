@@ -98,31 +98,51 @@ describe("GET /api/outbox-dispatch", () => {
   it("fails closed when CRON_SECRET is missing or short", async () => {
     for (const env of [{}, { CRON_SECRET: "short" }]) {
       const run = vi.fn(); const r = res();
-      await makeHandler({ run, env })({ method: "GET", headers: { authorization: "Bearer short" } }, r);
+      await makeHandler({ run, health: vi.fn(), env })({ method: "GET", headers: { authorization: "Bearer short" } }, r);
       expect(r.code).toBe(503); expect(run).not.toHaveBeenCalled();
     }
   });
   it("rejects a missing or wrong bearer token without running", async () => {
     for (const authorization of [undefined, "Bearer nope", SECRET, `Basic ${SECRET}`]) {
       const run = vi.fn(); const r = res();
-      await makeHandler({ run, env: { CRON_SECRET: SECRET } })({ method: "GET", headers: { authorization } }, r);
+      await makeHandler({ run, health: vi.fn(), env: { CRON_SECRET: SECRET } })({ method: "GET", headers: { authorization } }, r);
       expect(r.code).toBe(401); expect(run).not.toHaveBeenCalled();
     }
   });
   it("only accepts GET", async () => {
     const run = vi.fn(); const r = res();
-    await makeHandler({ run, env: { CRON_SECRET: SECRET } })({ method: "POST", headers: { authorization: `Bearer ${SECRET}` } }, r);
+    await makeHandler({ run, health: vi.fn(), env: { CRON_SECRET: SECRET } })({ method: "POST", headers: { authorization: `Bearer ${SECRET}` } }, r);
     expect(r.code).toBe(405); expect(run).not.toHaveBeenCalled();
   });
-  it("runs and returns stats; hides internals on failure", async () => {
-    const ok = res();
-    await makeHandler({ run: async () => ({ claimed: 1 } as any), env: { CRON_SECRET: SECRET } })(
-      { method: "GET", headers: { authorization: `Bearer ${SECRET}` } }, ok);
-    expect(ok.code).toBe(200); expect(ok.body).toEqual({ claimed: 1 }); expect(ok.headers["Cache-Control"]).toBe("no-store");
-    const bad = res();
-    await makeHandler({ run: async () => { throw new Error("password authentication failed for user x"); }, env: { CRON_SECRET: SECRET } })(
-      { method: "GET", headers: { authorization: `Bearer ${SECRET}` } }, bad);
+  const HEALTHY = { healthy: true, alerts: [], outbox: { pending: 0, dead: 0, oldest_pending_s: null }, chain: { ok: true, mode: "incremental", head_pos: 7, head_hash: "ab" } };
+  const auth = { method: "GET", headers: { authorization: `Bearer ${SECRET}` } };
+  it("runs, then checks health, and returns both; hides internals on failure", async () => {
+    const ok = res(); const health = vi.fn(async () => HEALTHY as any);
+    await makeHandler({ run: async () => ({ claimed: 1 } as any), health, env: { CRON_SECRET: SECRET } })(auth, ok);
+    expect(ok.code).toBe(200); expect(ok.body).toEqual({ claimed: 1, health: HEALTHY }); expect(ok.headers["Cache-Control"]).toBe("no-store");
+    const bad = res(); const health2 = vi.fn(async () => HEALTHY as any);
+    await makeHandler({ run: async () => { throw new Error("password authentication failed for user x"); }, health: health2, env: { CRON_SECRET: SECRET } })(auth, bad);
     expect(bad.code).toBe(500); expect(JSON.stringify(bad.body)).not.toContain("password");
+    expect(health2).toHaveBeenCalledOnce();  // health still checked when the sync is failing
+  });
+  it("logs the chain head every run and an ALERT line when unhealthy", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sick = { ...HEALTHY, healthy: false, alerts: ["The audit log failed verification at position 3"] };
+    const r = res();
+    await makeHandler({ run: async () => ({ claimed: 0 } as any), health: async () => sick as any, env: { CRON_SECRET: SECRET } })(auth, r);
+    expect(r.code).toBe(200);
+    expect(info.mock.calls.some((c) => c[0] === "ops health" && String(c[1]).includes('"head_hash":"ab"'))).toBe(true);
+    expect(err.mock.calls.some((c) => c[0] === "ALERT ops health" && String(c[1]).includes("position 3"))).toBe(true);
+    info.mockRestore(); err.mockRestore();
+  });
+  it("a failing health check is an ALERT but never fails the dispatch", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = res();
+    await makeHandler({ run: async () => ({ claimed: 2 } as any), health: async () => { throw Object.assign(new Error("function api.ops_health_check() does not exist"), { code: "42883" }); }, env: { CRON_SECRET: SECRET } })(auth, r);
+    expect(r.code).toBe(200); expect(r.body).toEqual({ claimed: 2, health: null });
+    expect(err.mock.calls.some((c) => c[0] === "ALERT ops health check failed")).toBe(true);
+    err.mockRestore();
   });
   it("compares the secret in constant time over equal-length digests", () => {
     expect(authorised(`Bearer ${SECRET}`, SECRET)).toBe(true);
