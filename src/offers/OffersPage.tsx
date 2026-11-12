@@ -79,6 +79,9 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
   const [history, setHistory] = useState<Change[]>([]);
   const set = <K extends keyof OfferInput>(k: K, v: OfferInput[K]) => setF((x) => ({ ...x, [k]: v }));
   const products = PRODUCT_TYPES.filter((p) => p.category === f.category);
+  // Approve/publish act on the SAVED offer. Unsaved edits are invisible to them, which
+  // produced confusing "image is required" errors when the image was added but not saved.
+  const dirty = !!offer && (Object.keys(EMPTY) as (keyof OfferInput)[]).some((k) => (f[k] ?? null) !== (offer[k] ?? null));
 
   useEffect(() => { if (offer) offerHistory(offer.id).then((r) => setHistory(r.history)).catch(() => setHistory([])); }, [offer]);
 
@@ -184,7 +187,7 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
         </div>
       </form>
 
-      {offer && <Workflow offer={offer} busy={busy} run={run} />}
+      {offer && <Workflow offer={offer} busy={busy} dirty={dirty} run={run} />}
 
       {offer && <section className="history">
         <h2>Change history</h2>
@@ -200,7 +203,7 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
   );
 }
 
-function Workflow({ offer, busy, run }: { offer: Offer; busy: boolean; run: (fn: () => Promise<{ offer: Offer }>) => Promise<void> }) {
+function Workflow({ offer, busy, dirty, run }: { offer: Offer; busy: boolean; dirty: boolean; run: (fn: () => Promise<{ offer: Offer }>) => Promise<void> }) {
   const [reason, setReason] = useState("");
   const [verified, setVerified] = useState(today());
   const ok = reason.trim().length >= MIN_REASON;
@@ -218,11 +221,12 @@ function Workflow({ offer, busy, run }: { offer: Offer; busy: boolean; run: (fn:
       {offer.status === "draft" && <>
         <p className="hint">Approval checks the image, source link, consent reference, expiry, and that rates were verified in the last {VERIFY_DAYS} days.</p>
         {reasonBox("What did you check?", "e.g. Rates and terms match the provider's sheet dated 21 Oct")}
-        <div className="actions"><button className="primary" disabled={!ok || busy} onClick={() => run(() => approveOffer(offer.id, offer.version, reason.trim()))}>Approve</button></div>
+        {dirty && <p className="status warn" role="status">You have unsaved changes. Choose “Save changes” above first — approval checks the saved offer.</p>}
+        <div className="actions"><button className="primary" disabled={!ok || busy || dirty} onClick={() => run(() => approveOffer(offer.id, offer.version, reason.trim()))}>Approve</button></div>
       </>}
       {offer.status === "approved" && <>
         <p className="hint">Publishing makes this offer visible to every signed-in borrower.</p>
-        <div className="actions"><button className="primary" disabled={busy} onClick={() => run(() => publishOffer(offer.id, offer.version))}>Publish to borrowers</button></div>
+        <div className="actions"><button className="primary" disabled={busy || dirty} onClick={() => run(() => publishOffer(offer.id, offer.version))}>Publish to borrowers</button></div>
       </>}
       {offer.status === "published" && <>
         <div className="fld">
