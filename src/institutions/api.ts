@@ -9,7 +9,7 @@ export type Institution = {
 };
 export type Module = { module_code: string; name: string; description: string | null; billing_model: string };
 export type ChangeRequest = {
-  id: string; op: "institution.approve" | "institution.suspend" | "entitlement.set"; target_key: string; target_label: string;
+  id: string; op: "institution.approve" | "institution.suspend" | "entitlement.set" | "institution.invite_admin"; target_key: string; target_label: string;
   args: Record<string, unknown>; reason: string; status: "pending" | "approved" | "rejected" | "cancelled";
   maker_email: string; checker_email: string | null; decision_note: string | null; decided_at: string | null;
   created_at: string; version: number;
@@ -26,6 +26,7 @@ const post = <T>(action: string, b: Record<string, unknown>) => call<T>({ method
 
 export const load = () => call<View>();
 export const ask = (b: Record<string, unknown>) => post("request", b);
-export const approve = (r: ChangeRequest, note: string) => post("approve", { id: r.id, version: r.version, note });
+export type Invite = { email_sent: boolean } | { error: string };
+export const approve = (r: ChangeRequest, note: string) => post<{ invite?: Invite }>("approve", { id: r.id, version: r.version, note });
 export const reject = (r: ChangeRequest, note: string) => post("reject", { id: r.id, version: r.version, note });
 export const withdraw = (r: ChangeRequest) => post("withdraw", { id: r.id, version: r.version });
