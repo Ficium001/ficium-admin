@@ -4,7 +4,8 @@
  * GET  /api/institutions                     -> { institutions, catalog, requests }
  * GET  /api/institutions?view=groups         -> { groups }  (read-only role templates)
  * POST /api/institutions { action, ... }
- *   request   { op, institution_id, institution_name, reason, module_code?, status?, plan_tier?, valid_to? }
+ *   request   { op, institution_id, institution_name, reason, module_code?, status?, plan_tier?, valid_to?,
+ *               email?, full_name? }   (email + full_name for institution.invite_admin)
  *   approve   { id, version, note? }   four-eyes: never the person who asked
  *   reject    { id, version, note }
  *   withdraw  { id, version }
@@ -13,10 +14,13 @@
  * and applied through portal-api only (signed + the approver's MFA token). The
  * admin-DB transaction spans the portal call: refused or unreachable portal =
  * rollback, nothing recorded as done. Commands are idempotent by command_id.
+ * institution.invite_admin (a first admin for a bank that has none): after it
+ * commits, ficium-auth emails that admin a set-password link, as the approver.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/portal-api.js";
+import { inviteInstitutionAdmin, type InviteResult } from "./_lib/institution-invite.js";
 import { onlyOn } from "./_lib/site.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown; query?: Record<string, string | string[] | undefined> };
@@ -26,12 +30,17 @@ export type Deps = {
   requireStaff: (h: Req["headers"]) => Promise<Staff>;
   withAdmin: <T>(s: Staff, m: Meta, fn: (q: Q) => Promise<T>) => Promise<T>;
   portal: PortalCall;
+  invite?: (authorization: string, email: string) => Promise<InviteResult>;
 };
-const live: Deps = { requireStaff: (h) => requireStaffIdentity(h), withAdmin, portal: portalApi() };
+const live: Deps = {
+  requireStaff: (h) => requireStaffIdentity(h), withAdmin, portal: portalApi(),
+  invite: (authorization, email) => inviteInstitutionAdmin(authorization, email),
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODULE = /^[A-Z][A-Z0-9_]{1,39}$/;
-const OPS = new Set(["institution.approve", "institution.suspend", "entitlement.set"]);
+const OPS = new Set(["institution.approve", "institution.suspend", "entitlement.set", "institution.invite_admin"]);
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const STATUSES = new Set(["active", "trial", "suspended", "expired"]);
 const TIERS = new Set(["trial", "standard", "professional", "enterprise"]);
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -50,6 +59,12 @@ export function buildRequest(b: Record<string, unknown>) {
   need(reason.length >= 10, "Give a reason of at least 10 characters");
   if (op === "institution.approve") return { op, key: iid, label: name, args: { institution_id: iid }, reason };
   if (op === "institution.suspend") return { op, key: iid, label: name, args: { institution_id: iid, reason }, reason };
+  if (op === "institution.invite_admin") {
+    const email = str(b.email).toLowerCase(), full = str(b.full_name);
+    need(EMAIL.test(email) && email.length <= 254, "email is not valid");
+    need(full.length >= 2 && full.length <= 200, "full_name is required");
+    return { op, key: iid, label: `${name}: ${email}`, args: { institution_id: iid, email, full_name: full, reason }, reason };
+  }
   const code = str(b.module_code), status = str(b.status), tier = str(b.plan_tier) || "standard", until = str(b.valid_to);
   need(MODULE.test(code), "module_code is not valid");
   need(STATUSES.has(status), "status is not valid");
@@ -114,12 +129,21 @@ export function makeHandler(deps: Deps) {
         case "approve": {
           const id = str(b.id), v = version(b.version), note = str(b.note);
           need(UUID.test(id), "id is not valid");
-          const out = await deps.withAdmin(staff, meta, async (q) => {
+          const { out, op, result } = await deps.withAdmin(staff, meta, async (q) => {
             const a = (await q("select api.change_request_approve($1, $2, $3) as v", [id, v, note || null])).rows[0]?.v;
             const result = await deps.portal("commands", a.command, actor);
-            return (await q("select api.change_request_record_result($1, $2) as v", [id, { data: result }])).rows[0]?.v;
+            const out = (await q("select api.change_request_record_result($1, $2) as v", [id, { data: result }])).rows[0]?.v;
+            return { out, op: a.command?.op as string | undefined, result };
           });
-          return res.status(200).json({ request: out });
+          if (op !== "institution.invite_admin") return res.status(200).json({ request: out });
+          // Committed. Now the invitation; a failure here leaves a login that can be re-invited.
+          let invite: { email_sent: boolean } | { error: string };
+          try {
+            invite = await (deps.invite ?? live.invite!)(`Bearer ${actor}`, String(result?.admin_email ?? ""));
+          } catch (e) {
+            invite = { error: e instanceof Error ? e.message : "The invitation was not sent" };
+          }
+          return res.status(200).json({ request: out, invite });
         }
         case "reject": {
           const id = str(b.id), v = version(b.version), note = str(b.note);

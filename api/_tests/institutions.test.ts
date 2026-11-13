@@ -86,4 +86,30 @@ describe("/api/institutions (portal admin site)", () => {
     const s = buildRequest({ ...base, op: "institution.suspend" });
     expect(s.args).toEqual({ institution_id: INST, reason: base.reason });
   });
+
+  it("invite_admin needs an email and a name, and is stored as a four-eyes request", async () => {
+    expect(() => buildRequest({ ...base, op: "institution.invite_admin", email: "x", full_name: "MCB Ops" })).toThrow("email");
+    expect(() => buildRequest({ ...base, op: "institution.invite_admin", email: "ops@mcb.mu", full_name: "" })).toThrow("full_name");
+    const r = buildRequest({ ...base, op: "institution.invite_admin", email: " Ops@MCB.mu ", full_name: "MCB Ops" });
+    expect(r.args).toEqual({ institution_id: INST, email: "ops@mcb.mu", full_name: "MCB Ops", reason: base.reason });
+    expect(r.label).toBe("MCB: ops@mcb.mu");
+  });
+
+  it("approving invite_admin applies it, then emails the invite as the approver", async () => {
+    const command = { op: "institution.invite_admin", command_id: REQ, maker_sub: "m", args: { institution_id: INST } };
+    const db = fakeAdmin({ "api.change_request_approve": { v: { command } }, "api.change_request_record_result": { v: { id: REQ } } });
+    const p = portal({ admin_email: "ops@mcb.mu" }); const invite = vi.fn(async () => ({ email_sent: true })); const r = res();
+    await makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal: p, invite })(post({ action: "approve", id: REQ, version: 1 }), r);
+    expect(r.code).toBe(200);
+    expect(invite).toHaveBeenCalledWith("Bearer staff-token", "ops@mcb.mu");
+    expect(r.body.invite).toEqual({ email_sent: true });
+  });
+
+  it("other approvals never send an invitation", async () => {
+    const command = { op: "institution.approve", command_id: REQ, maker_sub: "m", args: { institution_id: INST } };
+    const db = fakeAdmin({ "api.change_request_approve": { v: { command } }, "api.change_request_record_result": { v: { id: REQ } } });
+    const invite = vi.fn(); const r = res();
+    await makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal: portal(), invite })(post({ action: "approve", id: REQ, version: 1 }), r);
+    expect(r.code).toBe(200); expect(invite).not.toHaveBeenCalled();
+  });
 });

@@ -22,7 +22,13 @@ function adminPool(): pg.Pool {
   if (!pool) {
     const url = process.env.ADMIN_DB_API_URL;
     if (!url) throw Object.assign(new Error("ADMIN_DB_API_URL is not set"), { code: "CONFIG" });
-    pool = new pg.Pool({ connectionString: stripSslParams(url.trim()), max: 2, ssl: { rejectUnauthorized: true } });
+    // connectionTimeoutMillis: without it a stalled connect waits until Vercel kills the
+    // function (a bare 504 with nothing in the logs). Fail in 8 s with a readable error.
+    pool = new pg.Pool({
+      connectionString: stripSslParams(url.trim()), max: 2, ssl: { rejectUnauthorized: true },
+      connectionTimeoutMillis: 8000, idleTimeoutMillis: 10000,
+    });
+    pool.on("error", (e) => console.warn("admin db pool error", (e as { code?: string }).code, (e as Error).message));
   }
   return pool;
 }
@@ -39,7 +45,14 @@ export function requestMeta(h: Headers): Meta {
 }
 
 export async function withAdmin<T>(staff: Staff, meta: Meta, fn: (q: Q) => Promise<T>): Promise<T> {
-  const c = await adminPool().connect();
+  let c: pg.PoolClient;
+  try { c = await adminPool().connect(); }
+  catch (e) {
+    if ((e as { code?: string })?.code === "CONFIG") throw e;
+    // Connection errors carry no credentials; log the reason so a failure is visible.
+    console.error("admin db connect failed", (e as { code?: string })?.code, (e as Error)?.message);
+    throw Object.assign(new Error("The admin database could not be reached"), { code: "DB_UNREACHABLE" });
+  }
   try {
     await c.query("begin");
     await c.query("select api.begin_session($1, $2, $3, $4::inet, $5)",
@@ -76,6 +89,7 @@ export function dbError(e: any): { status: number; error: string } | null {
     case "23502": case "23503": case "23514": case "22P02": case "22007": case "22008":
       return { status: 400, error: "One of the fields isn't valid" };
     case "CONFIG": return { status: 503, error: "The admin database is not configured on this deployment" };
+    case "DB_UNREACHABLE": return { status: 503, error: "The admin database could not be reached. Try again shortly" };
     default: return null;
   }
 }
