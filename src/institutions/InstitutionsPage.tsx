@@ -5,7 +5,8 @@ import { load, ask, approve, reject, withdraw, type View, type Institution, type
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { dateStyle: "medium" });
 const describe = (r: ChangeRequest) =>
-  r.op === "institution.approve" ? `Approve ${r.target_label}`
+  r.op === "institution.invite_admin" ? `Invite a first admin to ${r.target_label}`
+  : r.op === "institution.approve" ? `Approve ${r.target_label}`
   : r.op === "institution.suspend" ? `Suspend ${r.target_label}`
   : `${r.target_label} → ${String(r.args.status)} (${String(r.args.plan_tier ?? "standard")})${r.args.valid_to ? ` until ${day(String(r.args.valid_to))}` : ""}`;
 
@@ -13,6 +14,7 @@ export default function InstitutionsPage() {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
   const me = claims()?.email?.toLowerCase() ?? "";
   const refresh = () => load().then((v) => { setView(v); setError(""); }).catch((e) => setError(e.message));
   useEffect(() => { refresh(); }, []);
@@ -28,11 +30,12 @@ export default function InstitutionsPage() {
     <main className="shell">
       <header className="top"><h1>Banks</h1><p className="who">Signed in as {me}</p></header>
       <p className="lead muted">Every change here needs a second admin to approve it before it reaches the portal.</p>
+      {notice && <p className="hint" role="status">{notice}</p>}
 
       {pending.length > 0 && (
         <section className="history">
           <h2>Waiting for a second approver</h2>
-          <ul className="board">{pending.map((r) => <Pending key={r.id} r={r} mine={r.maker_email.toLowerCase() === me} onDone={refresh} />)}</ul>
+          <ul className="board">{pending.map((r) => <Pending key={r.id} r={r} mine={r.maker_email.toLowerCase() === me} onDone={(msg) => { setNotice(msg ?? ""); refresh(); }} />)}</ul>
         </section>
       )}
 
@@ -72,7 +75,7 @@ export default function InstitutionsPage() {
   );
 }
 
-function Pending({ r, mine, onDone }: { r: ChangeRequest; mine: boolean; onDone: () => void }) {
+function Pending({ r, mine, onDone }: { r: ChangeRequest; mine: boolean; onDone: (msg?: string) => void }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -93,7 +96,15 @@ function Pending({ r, mine, onDone }: { r: ChangeRequest; mine: boolean; onDone:
         <div className="actions">
           {mine ? <button className="ghost" disabled={busy} onClick={() => run(() => withdraw(r))}>Withdraw</button> : <>
             <button className="ghost" disabled={busy || note.trim().length < 10} onClick={() => run(() => reject(r, note.trim()))}>Reject</button>
-            <button className={r.op === "institution.suspend" ? "primary destructive" : "primary"} disabled={busy} onClick={() => run(() => approve(r, note.trim()))}>
+            <button className={r.op === "institution.suspend" ? "primary destructive" : "primary"} disabled={busy} onClick={async () => {
+              setBusy(true); setErr("");
+              try {
+                const out = await approve(r, note.trim());
+                const i = out.invite;
+                onDone(!i ? undefined : "error" in i ? `Created, but the invitation was not sent: ${i.error}`
+                  : i.email_sent ? "Invitation emailed to the new admin." : "Created, but the email did not leave. Ask again to re-send.");
+              } catch (e) { setErr((e as Error).message); setBusy(false); }
+            }}>
               {busy ? "Working…" : "Approve and apply"}
             </button>
           </>}
@@ -104,7 +115,7 @@ function Pending({ r, mine, onDone }: { r: ChangeRequest; mine: boolean; onDone:
 }
 
 function Detail({ inst, catalog, busy, onDone }: { inst: Institution; catalog: Module[]; busy: boolean; onDone: () => void }) {
-  const [form, setForm] = useState<null | "approve" | "suspend" | "module">(null);
+  const [form, setForm] = useState<null | "approve" | "suspend" | "module" | "admin">(null);
   return (
     <div className="confirm">
       <p>{inst.legal_name} · {inst.institution_type} · {inst.country}{inst.primary_contact_email ? ` · ${inst.primary_contact_name ?? ""} <${inst.primary_contact_email}>` : ""}</p>
@@ -122,30 +133,42 @@ function Detail({ inst, catalog, busy, onDone }: { inst: Institution; catalog: M
             {!inst.approved && <button className="ghost" onClick={() => setForm("approve")}>Ask to approve</button>}
             {inst.onboarding_stage !== "suspended" && <button className="ghost" onClick={() => setForm("suspend")}>Ask to suspend</button>}
             <button className="ghost" onClick={() => setForm("module")}>Change a module</button>
+            {inst.active_members === 0 && <button className="ghost" onClick={() => setForm("admin")}>Invite a first admin</button>}
           </div>}
     </div>
   );
 }
 
-function Ask({ kind, inst, catalog, onCancel, onDone }: { kind: "approve" | "suspend" | "module"; inst: Institution; catalog: Module[]; onCancel: () => void; onDone: () => void }) {
+function Ask({ kind, inst, catalog, onCancel, onDone }: { kind: "approve" | "suspend" | "module" | "admin"; inst: Institution; catalog: Module[]; onCancel: () => void; onDone: () => void }) {
   const [reason, setReason] = useState("");
   const [code, setCode] = useState(catalog[0]?.module_code ?? "");
   const [status, setStatus] = useState("active");
   const [tier, setTier] = useState("standard");
   const [until, setUntil] = useState("");
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const op = kind === "approve" ? "institution.approve" : kind === "suspend" ? "institution.suspend" : "entitlement.set";
+  const op = kind === "approve" ? "institution.approve" : kind === "suspend" ? "institution.suspend"
+    : kind === "admin" ? "institution.invite_admin" : "entitlement.set";
   return (
     <form className={`confirm ${kind === "suspend" ? "grave" : ""}`} onSubmit={async (e) => {
       e.preventDefault(); setBusy(true); setErr("");
       try {
         await ask({ op, institution_id: inst.institution_id, institution_name: inst.name, reason: reason.trim(),
-          ...(kind === "module" && { module_code: code, status, plan_tier: tier, valid_to: until ? `${until}T23:59:59Z` : undefined }) });
+          ...(kind === "module" && { module_code: code, status, plan_tier: tier, valid_to: until ? `${until}T23:59:59Z` : undefined }),
+          ...(kind === "admin" && { email: email.trim(), full_name: fullName.trim() }) });
         onDone();
       } catch (x) { setErr((x as Error).message); setBusy(false); }
     }}>
       {kind === "suspend" && <p className="consequence">Once approved, {inst.name} can no longer use the portal or bid.</p>}
+      {kind === "admin" && <>
+        <p className="consequence">{inst.name} has no active users. Once approved, this person becomes its administrator and is emailed a link to set a password; they then invite their own team.</p>
+        <label htmlFor="a-email">Their work email</label>
+        <input id="a-email" type="email" maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} />
+        <label htmlFor="a-name">Their full name</label>
+        <input id="a-name" maxLength={200} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+      </>}
       {kind === "module" && <>
         <label htmlFor="m-code">Module</label>
         <select id="m-code" value={code} onChange={(e) => setCode(e.target.value)}>{catalog.map((m) => <option key={m.module_code} value={m.module_code}>{m.name}</option>)}</select>
@@ -162,7 +185,7 @@ function Ask({ kind, inst, catalog, onCancel, onDone }: { kind: "approve" | "sus
       {err && <p className="err" role="alert">{err}</p>}
       <div className="actions">
         <button type="button" className="ghost" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="submit" className="primary" disabled={busy || reason.trim().length < 10}>{busy ? "Sending…" : "Send for approval"}</button>
+        <button type="submit" className="primary" disabled={busy || reason.trim().length < 10 || (kind === "admin" && (!email.includes("@") || fullName.trim().length < 2))}>{busy ? "Sending…" : "Send for approval"}</button>
       </div>
     </form>
   );
