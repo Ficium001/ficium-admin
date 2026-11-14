@@ -9,7 +9,9 @@ export type Offer = OfferInput & {
   withdrawn_by: string | null; withdrawn_at: string | null; is_live: boolean; live_until: string | null;
   listed: boolean; listed_version: number | null;
 };
-export type Change = { id: number; changed_at: string; actor: string; action: string; reason: string | null };
+export type FieldChange = { field: string; before: string | null; after: string | null };
+export type Change = { id: number; changed_at: string; actor: string; action: string; reason: string | null; changes?: FieldChange[] };
+export type SinceApproval = { since: "new" | "last_approval"; last_approved_at: string | null; last_approved_by: string | null; rows: FieldChange[] };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await apiFetch(url, init);
@@ -21,7 +23,7 @@ const post = <T,>(payload: unknown) =>
   call<T>("/api/offers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 
 export const listOffers = () => call<{ actor: string; offers: Offer[] }>("/api/offers");
-export const offerHistory = (id: string) => call<{ history: Change[] }>(`/api/offers?id=${encodeURIComponent(id)}`);
+export const offerHistory = (id: string) => call<{ history: Change[]; changes: SinceApproval | null }>(`/api/offers?id=${encodeURIComponent(id)}`);
 export const saveOffer = (offer: OfferInput, id?: string, version?: number) =>
   post<{ offer: Offer }>({ action: "save", id: id ?? null, version: version ?? null, offer });
 export const approveOffer = (id: string, version: number, reason: string) => post<{ offer: Offer }>({ action: "approve", id, version, reason });

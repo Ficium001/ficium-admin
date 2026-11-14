@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { makeHandler, buildProvision } from "../applications.js";
 import { PortalApiError } from "../_lib/portal-api.js";
 import { InviteError } from "../_lib/institution-invite.js";
-import { res, fakeAdmin, staffOk } from "./admin-harness.js";
+import { res, fakeAdmin, staffOk, fakePortal } from "./admin-harness.js";
 
 const APP = "55555555-5555-4555-8555-555555555555";
 const CR = "77777777-7777-4777-8777-777777777777";
@@ -10,7 +10,9 @@ const H = { authorization: "Bearer staff-token" };
 const post = (b: Record<string, unknown>) => ({ method: "POST", headers: H, body: b });
 const prov = { request_id: APP, reference: "AB12CD34EF", institution_name: "ZZ Bank", contract_reference: "MSA-2026-014",
   deployment_model: "saas", reason: "Contract signed on 12 Nov, licence checked" };
-const handler = (db: any, portal: any = vi.fn(async () => ({})), invite: any = vi.fn(async () => ({ email_sent: true }))) =>
+const OPEN = [{ request_id: APP, status: "approved", institution_name: "ZZ Bank", contact_name: "Ada Lovelace", contact_email: "ada@zzbank.mu" }];
+const port = (command: (c: any) => unknown = () => ({})) => fakePortal({ "access_requests.list": OPEN }, command);
+const handler = (db: any, portal: any = port(), invite: any = vi.fn(async () => ({ email_sent: true }))) =>
   ({ h: makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal, invite }), portal, invite });
 
 describe("/api/applications (portal admin site)", () => {
@@ -78,9 +80,19 @@ describe("/api/applications (portal admin site)", () => {
     const { h, portal, invite } = handler(db); const r = res();
     await h(post({ action: "provision_request", ...prov }), r);
     expect(r.code).toBe(200);
-    expect(db.calls[0]!.params).toEqual(["institution.provision", APP, "ZZ Bank (AB12CD34EF)",
+    const params = db.calls[0]!.params as any[];
+    expect(params.slice(0, 5)).toEqual(["institution.provision", APP, "ZZ Bank (AB12CD34EF)",
       { request_id: APP, contract_reference: "MSA-2026-014", deployment_model: "saas" }, prov.reason]);
-    expect(portal).not.toHaveBeenCalled(); expect(invite).not.toHaveBeenCalled();
+    expect(params[6].rows).toContainEqual({ field: "First administrator", before: null, after: "Ada Lovelace (ada@zzbank.mu)" });
+    expect(params[6].rows).toContainEqual({ field: "Application", before: "Approved, awaiting contract", after: "Provisioned" });
+    expect(portal.mock.calls.every((c: any[]) => c[0] === "query")).toBe(true); expect(invite).not.toHaveBeenCalled();
+  });
+
+  it("provision_request refuses an application that is not approved", async () => {
+    const db = fakeAdmin();
+    const { h } = handler(db, fakePortal({ "access_requests.list": [{ ...OPEN[0], status: "in_review" }] })); const r = res();
+    await h(post({ action: "provision_request", ...prov }), r);
+    expect(r.code).toBe(400); expect(db.withAdmin).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -95,7 +107,7 @@ describe("/api/applications (portal admin site)", () => {
     const command = { op: "institution.provision", command_id: CR, maker_sub: "m", args: { request_id: APP } };
     const db = fakeAdmin({ "api.change_request_approve": { v: { command } }, "api.change_request_record_result": { v: { id: CR, status: "approved" } } });
     const result = { institution_id: "i", admin_email: "ada@zzbank.mu" };
-    const { h, portal, invite } = handler(db, vi.fn(async () => result));
+    const { h, portal, invite } = handler(db, port(() => result));
     const r = res();
     await h(post({ action: "provision_approve", id: CR, version: 1 }), r);
     expect(r.code).toBe(200);
@@ -105,9 +117,9 @@ describe("/api/applications (portal admin site)", () => {
   });
 
   it("an invite failure after provisioning is reported, not hidden, and does not undo the bank", async () => {
-    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "institution.provision" } } }, "api.change_request_record_result": { v: { id: CR } } });
+    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "institution.provision", args: { request_id: APP } } } }, "api.change_request_record_result": { v: { id: CR } } });
     const inv = vi.fn(async () => { throw new InviteError(502, "Couldn't reach the sign-in service. The invitation was not sent"); });
-    const { h } = handler(db, vi.fn(async () => ({ admin_email: "ada@zzbank.mu" })), inv);
+    const { h } = handler(db, port(() => ({ admin_email: "ada@zzbank.mu" })), inv);
     const r = res();
     await h(post({ action: "provision_approve", id: CR, version: 1 }), r);
     expect(r.code).toBe(200);
@@ -123,8 +135,8 @@ describe("/api/applications (portal admin site)", () => {
   });
 
   it("a portal refusal of provisioning (e.g. email in use) is surfaced and nothing is invited", async () => {
-    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "institution.provision" } } } });
-    const p = vi.fn(async () => { throw new PortalApiError(409, "email_in_use", "That contact email already has a portal account."); });
+    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "institution.provision", args: { request_id: APP } } } } });
+    const p = port(() => { throw new PortalApiError(409, "email_in_use", "That contact email already has a portal account."); });
     const { h, invite } = handler(db, p); const r = res();
     await h(post({ action: "provision_approve", id: CR, version: 1 }), r);
     expect(r.code).toBe(409); expect(invite).not.toHaveBeenCalled();

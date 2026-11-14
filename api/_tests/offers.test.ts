@@ -13,7 +13,8 @@ const good = {
   source_url: "https://bank.example/rates", consent_ref: "Email 21 Oct from J. Doe",
 };
 const answers = { "api.offer_save": { o: { id: ID } }, "api.offer_view(": { o: { id: ID, created_by: "kj@ficium.net" } },
-  "api.offer_view_list": { v: { actor: "kj@ficium.net", offers: [] } }, "api.offer_history": { h: [] } };
+  "api.offer_view_list": { v: { actor: "kj@ficium.net", offers: [] } }, "api.offer_history": { h: [] },
+  "api.offer_changes": { c: { since: "last_approval", rows: [{ field: "Terms", before: "6.5%", after: "6.25%" }] } } };
 const post = (b: Record<string, unknown>) => ({ method: "POST", headers: {}, body: b });
 const handler = (db = fakeAdmin(answers), kick = vi.fn(async () => undefined)) =>
   ({ h: makeHandler({ requireStaff: staffOk(), withAdmin: db.withAdmin, kick }), db, kick });
@@ -117,5 +118,6 @@ describe("GET /api/offers on the admin DB", () => {
     expect(r1.code).toBe(400);
     await h({ method: "GET", headers: {}, query: { id: ID } }, r2);
     expect(r2.code).toBe(200); expect(db.calls[0]!.sql).toContain("api.offer_history");
+    expect(r2.body.changes.rows).toEqual([{ field: "Terms", before: "6.5%", after: "6.25%" }]);
   });
 });

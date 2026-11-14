@@ -1,6 +1,6 @@
 /**
  * GET  /api/offers                 -> { actor, offers }
- * GET  /api/offers?id=<uuid>       -> { history }   (from the audit log)
+ * GET  /api/offers?id=<uuid>       -> { history, changes }   (from the audit log; changes = since last approval)
  * POST /api/offers { action, ... } -> { offer }
  *   save (id?, version?, offer) | approve (id, version, reason) | publish (id, version)
  *   | withdraw (id, version, reason) | reverify (id, version, verified_at, reason)
@@ -40,9 +40,11 @@ export function makeHandler(deps: Deps) {
         const id = req.query?.id;
         if (id !== undefined) {
           if (!isUuid(id)) return res.status(400).json({ error: "Unknown offer" });
-          const history = await deps.withAdmin(staff, meta, async (q) =>
-            (await q("select api.offer_history($1) as h", [id])).rows[0]?.h ?? []);
-          return res.status(200).json({ history });
+          const { history, changes } = await deps.withAdmin(staff, meta, async (q) => ({
+            history: (await q("select api.offer_history($1) as h", [id])).rows[0]?.h ?? [],
+            changes: (await q("select api.offer_changes($1) as c", [id])).rows[0]?.c ?? null,
+          }));
+          return res.status(200).json({ history, changes });
         }
         const v = await deps.withAdmin(staff, meta, async (q) => (await q("select api.offer_view_list() as v")).rows[0]?.v);
         return res.status(200).json({ actor: v?.actor ?? staff.email, offers: v?.offers ?? [] });

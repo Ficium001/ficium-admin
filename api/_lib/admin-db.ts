@@ -81,6 +81,7 @@ export async function kickDispatch(): Promise<void> {
 export function dbError(e: any): { status: number; error: string } | null {
   switch (e?.code) {
     case "22023": return { status: 400, error: String(e.message) };
+    case "FC409": return { status: 409, error: String(e.message).replace(/^CHANGED_SINCE_REQUEST: /, "") };
     case "P0002": return { status: 404, error: String(e.message) };
     case "40001": return { status: 409, error: "Someone changed this since you opened it. Reload and try again" };
     case "23505": return { status: 409, error: String(e.message) };
