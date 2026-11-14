@@ -1,3 +1,4 @@
+import type { ChangeRow } from "../shared/ChangeTable";
 import { apiFetch } from "../auth/client";
 
 export type Entitlement = { module_code: string; status: string; plan_tier: string; valid_to: string | null };
@@ -13,6 +14,7 @@ export type ChangeRequest = {
   args: Record<string, unknown>; reason: string; status: "pending" | "approved" | "rejected" | "cancelled";
   maker_email: string; checker_email: string | null; decision_note: string | null; decided_at: string | null;
   created_at: string; version: number;
+  change?: { rows: ChangeRow[]; described?: boolean } | null;
 };
 export type View = { institutions: Institution[]; catalog: Module[]; requests: ChangeRequest[] };
 

@@ -1,3 +1,4 @@
+import type { ChangeRow } from "../shared/ChangeTable";
 import { apiFetch } from "../auth/client";
 
 export type Rule = {
@@ -12,6 +13,7 @@ export type ChangeRequest = {
   args: Record<string, unknown>; reason: string; status: "pending" | "approved" | "rejected" | "cancelled";
   maker_email: string; checker_email: string | null; decision_note: string | null; decided_at: string | null;
   created_at: string; version: number;
+  change?: { rows: ChangeRow[]; described?: boolean } | null;
 };
 export type View = { rules: Rule[]; institutions: Bank[]; products: Product[]; requests: ChangeRequest[] };
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { makeHandler, buildRequest, percentToFraction } from "../commission.js";
 import { PortalApiError } from "../_lib/portal-api.js";
-import { res, fakeAdmin, staffOk } from "./admin-harness.js";
+import { res, fakeAdmin, staffOk, fakePortal } from "./admin-harness.js";
 
 const INST = "33333333-3333-4333-8333-333333333333";
 const RULE = "66666666-6666-4666-8666-666666666666";
@@ -11,6 +11,8 @@ const H = { authorization: "Bearer staff-token" };
 const post = (b: Record<string, unknown>) => ({ method: "POST", headers: H, body: b });
 const set = { op: "commission.set", institution_id: INST, institution_name: "MCB", product_code: "home_loan",
   product_name: "Home loan", rate_percent: "0.45", effective_from: TODAY, reason: "MCB mortgage rate agreed in pilot" };
+const CURRENT = { rule_id: RULE, institution_id: INST, product_code: "home_loan", rate: "0.0040",
+  effective_from: "2026-01-01", ended_on: null };
 const deps = (db: ReturnType<typeof fakeAdmin>, portal: any = vi.fn()) =>
   ({ requireStaff: staffOk(), withAdmin: db.withAdmin, portal, today: () => TODAY });
 
@@ -69,27 +71,44 @@ describe("/api/commission (portal admin site)", () => {
     expect(r.code).toBe(403); expect(p).not.toHaveBeenCalled();
   });
 
-  it("a request is stored in the admin DB only; portal-api is not called", async () => {
-    const db = fakeAdmin({ "api.change_request_create": { v: { id: REQ, status: "pending" } } }); const p = vi.fn(); const r = res();
+  it("a request freezes the rule in force for that scope and shows old rate -> new rate", async () => {
+    const db = fakeAdmin({ "api.change_request_create": { v: { id: REQ, status: "pending" } } });
+    const p = fakePortal({ "commission.rules": [CURRENT] }); const r = res();
     await makeHandler(deps(db, p))(post({ action: "request", ...set }), r);
     expect(r.code).toBe(200);
-    expect(db.calls[0]!.params![0]).toBe("commission.set");
-    expect(db.calls[0]!.params![3]).toMatchObject({ rate: "0.0045" });
-    expect(p).not.toHaveBeenCalled();
+    const params = db.calls[0]!.params as any[];
+    expect(params[0]).toBe("commission.set");
+    expect(params[3]).toMatchObject({ rate: "0.0045" });
+    expect(params[5]).toEqual({ exists: true, rule_id: RULE, rate: "0.0040", effective_from: "2026-01-01" });
+    expect(params[6].rows).toEqual([
+      { field: "Rate", before: "0.4%", after: "0.45%" },
+      { field: "Applies from", before: "2026-01-01", after: TODAY },
+      { field: "Current 0.4% rule ends", before: "Open", after: TODAY },
+    ]);
+    expect(p.mock.calls.every((c) => c[0] === "query")).toBe(true);
+  });
+
+  it("a new scope says it has no rule of its own", async () => {
+    const db = fakeAdmin({ "api.change_request_create": { v: { id: REQ } } }); const r = res();
+    await makeHandler(deps(db, fakePortal({ "commission.rules": [] })))(post({ action: "request", ...set }), r);
+    const params = db.calls[0]!.params as any[];
+    expect(params[5]).toEqual({ exists: false });
+    expect(params[6].rows[0]).toEqual({ field: "Rate", before: "No rule of its own", after: "0.45%" });
   });
 
   it("approve sends the stored command to portal-api and records the result", async () => {
-    const command = { op: "commission.set", command_id: REQ, maker_sub: "m", args: { rate: "0.0045" } };
+    const command = { op: "commission.set", command_id: REQ, maker_sub: "m",
+      args: { institution_id: INST, product_code: "home_loan", rate: "0.0045", effective_from: TODAY } };
     const db = fakeAdmin({ "api.change_request_approve": { v: { command } }, "api.change_request_record_result": { v: { id: REQ, status: "approved" } } });
-    const p = vi.fn(async () => ({ id: RULE })); const r = res();
+    const p = fakePortal({ "commission.rules": [CURRENT] }, () => ({ id: RULE })); const r = res();
     await makeHandler(deps(db, p))(post({ action: "approve", id: REQ, version: 1 }), r);
     expect(r.code).toBe(200);
     expect(p).toHaveBeenCalledWith("commands", command, "staff-token");
   });
 
   it("a portal refusal (e.g. a later rule exists) is passed back and nothing is recorded as done", async () => {
-    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "commission.set" } } } });
-    const p = vi.fn(async () => { throw new PortalApiError(409, "later_rule_exists", "A rule for this scope already starts on or after that date."); });
+    const db = fakeAdmin({ "api.change_request_approve": { v: { command: { op: "commission.set", args: { institution_id: INST, product_code: "home_loan" } } } } });
+    const p = fakePortal({ "commission.rules": [CURRENT] }, () => { throw new PortalApiError(409, "later_rule_exists", "A rule for this scope already starts on or after that date."); });
     const r = res();
     await makeHandler(deps(db, p))(post({ action: "approve", id: REQ, version: 1 }), r);
     expect(r.code).toBe(409);

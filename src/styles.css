@@ -133,3 +133,12 @@ h1, h2, p { margin: 0; }
 .table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line, #e5e5e5); }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .table tfoot th { border-top: 2px solid currentColor; }
+
+/* Four-eyes: what the request changes */
+.change { margin: 8px 0 4px; }
+.change table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
+.change th, .change td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.change thead th { font-weight: 600; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.change tbody th { font-weight: 500; white-space: nowrap; }
+.change tr.changed td:last-child strong { color: var(--ink, inherit); }
+.change tr:last-child th, .change tr:last-child td { border-bottom: 0; }

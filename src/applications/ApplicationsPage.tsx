@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { claims } from "../auth/client";
+import ChangeTable from "../shared/ChangeTable";
 import {
   load, review, askProvision, approveProvision, rejectProvision, withdrawProvision, resendInvite,
   type View, type Application, type ProvisionRequest, type Status, type Invite,
@@ -96,6 +97,7 @@ function Pending({ r, mine, onDone }: { r: ProvisionRequest; mine: boolean; onDo
         <h2>Create {r.target_label}</h2>
         <p>Contract {r.args.contract_reference} · {r.args.deployment_model} · asked by {r.maker_email} · {fmt(r.created_at)}</p>
         <p className="reason">“{r.reason}”</p>
+        <ChangeTable r={r} />
       </div>
       <div className="confirm">
         {mine ? <p className="hint">You asked for this, so someone else must approve it.</p> : <>

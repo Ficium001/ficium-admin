@@ -26,6 +26,7 @@ import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/portal-api.js";
 import { inviteInstitutionAdmin, InviteError, type InviteResult } from "./_lib/institution-invite.js";
 import { onlyOn } from "./_lib/site.js";
+import { describeChange, snapshot, ChangeError } from "./_lib/change.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -121,8 +122,9 @@ export function makeHandler(deps: Deps) {
         }
         case "provision_request": {
           const r = buildProvision(b);
+          const { before, change } = await describeChange("institution.provision", r.args, deps.portal, actor);
           const out = await deps.withAdmin(staff, meta, async (q) =>
-            (await q("select api.change_request_create($1, $2, $3, $4, $5) as v", ["institution.provision", r.key, r.label, r.args, r.reason])).rows[0]?.v);
+            (await q("select api.change_request_create($1, $2, $3, $4, $5, $6, $7) as v", ["institution.provision", r.key, r.label, r.args, r.reason, before, change])).rows[0]?.v);
           return res.status(200).json({ request: out });
         }
         case "provision_approve": {
@@ -130,6 +132,7 @@ export function makeHandler(deps: Deps) {
           const { request, result } = await deps.withAdmin(staff, meta, async (q) => {
             const a = (await q("select api.change_request_approve($1, $2, $3) as v", [id, v, note || null])).rows[0]?.v;
             need(a?.command?.op === "institution.provision", "That request is not an application provisioning");
+            await q("select api.change_request_confirm_unchanged($1, $2)", [id, await snapshot("institution.provision", a.command.args, deps.portal, actor)]);
             const result = await deps.portal("commands", a.command, actor);
             const request = (await q("select api.change_request_record_result($1, $2) as v", [id, { data: result }])).rows[0]?.v;
             return { request, result };
@@ -166,7 +169,7 @@ export function makeHandler(deps: Deps) {
           return res.status(400).json({ error: "Unknown action" });
       }
     } catch (e: any) {
-      if (e instanceof Bad) return res.status(400).json({ error: e.message });
+      if (e instanceof Bad || e instanceof ChangeError) return res.status(400).json({ error: e.message });
       if (e instanceof SyntaxError) return res.status(400).json({ error: "Body must be JSON" });
       if (e instanceof PortalApiError) return res.status(e.status).json({ error: e.message, code: e.code });
       if (e instanceof InviteError) return res.status(e.status).json({ error: e.message });

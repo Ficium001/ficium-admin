@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { claims } from "../auth/client";
 import { load, ask, approve, reject, withdraw, pct, scope, statement, statementCsv, type View, type Rule, type ChangeRequest, type Statement } from "./api";
+import ChangeTable from "../shared/ChangeTable";
 
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 const day = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-GB", { dateStyle: "medium" });
@@ -86,6 +87,7 @@ export default function CommissionPage() {
             <li key={r.id}>
               <p><strong>{describe(r)}</strong>: {r.status}{r.checker_email ? ` by ${r.checker_email}` : ""} (asked by {r.maker_email})</p>
               <p className="reason">“{r.decision_note ?? r.reason}”</p>
+              <ChangeTable r={r} decided />
               {r.decided_at && <time dateTime={r.decided_at}>{fmt(r.decided_at)}</time>}
             </li>))}
           </ol>
@@ -106,6 +108,7 @@ function Pending({ r, mine, onDone }: { r: ChangeRequest; mine: boolean; onDone:
         <h2>{describe(r)}</h2>
         <p>Asked by {r.maker_email} · {fmt(r.created_at)}</p>
         <p className="reason">“{r.reason}”</p>
+        <ChangeTable r={r} />
       </div>
       <div className="confirm">
         {mine ? <p className="hint">You asked for this, so someone else must approve it.</p> : <>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { CATEGORIES, PRODUCT_TYPES, LIMITS, MIN_REASON, VERIFY_DAYS, type OfferInput } from "../../api/_lib/offers";
 import {
   listOffers, offerHistory, saveOffer, approveOffer, publishOffer, withdrawOffer, reverifyOffer, uploadImage,
-  type Offer, type Change,
+  type Offer, type Change, type FieldChange, type SinceApproval,
 } from "./api";
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "—");
@@ -77,13 +77,14 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
   const [err, setErr] = useState("");
   const [uploading, setUploading] = useState(false);
   const [history, setHistory] = useState<Change[]>([]);
+  const [since, setSince] = useState<SinceApproval | null>(null);
   const set = <K extends keyof OfferInput>(k: K, v: OfferInput[K]) => setF((x) => ({ ...x, [k]: v }));
   const products = PRODUCT_TYPES.filter((p) => p.category === f.category);
   // Approve/publish act on the SAVED offer. Unsaved edits are invisible to them, which
   // produced confusing "image is required" errors when the image was added but not saved.
   const dirty = !!offer && (Object.keys(EMPTY) as (keyof OfferInput)[]).some((k) => (f[k] ?? null) !== (offer[k] ?? null));
 
-  useEffect(() => { if (offer) offerHistory(offer.id).then((r) => setHistory(r.history)).catch(() => setHistory([])); }, [offer]);
+  useEffect(() => { if (offer) offerHistory(offer.id).then((r) => { setHistory(r.history); setSince(r.changes); }).catch(() => { setHistory([]); setSince(null); }); }, [offer]);
 
   const run = async (fn: () => Promise<{ offer: Offer }>) => {
     setBusy(true); setErr("");
@@ -187,7 +188,7 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
         </div>
       </form>
 
-      {offer && <Workflow offer={offer} busy={busy} dirty={dirty} run={run} />}
+      {offer && <Workflow offer={offer} busy={busy} dirty={dirty} run={run} since={since} />}
 
       {offer && <section className="history">
         <h2>Change history</h2>
@@ -196,6 +197,7 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
               <li key={h.id}>
                 <p><strong>{h.action}</strong> by {h.actor}</p>
                 {h.reason && <p className="reason">“{h.reason}”</p>}
+                {h.changes && h.changes.length > 0 && <FieldChanges rows={h.changes} />}
                 <time dateTime={h.changed_at}>{fmt(h.changed_at)}</time>
               </li>))}</ol>}
       </section>}
@@ -203,7 +205,7 @@ function Editor({ offer, onClose, onChanged }: { offer: Offer | null; onClose: (
   );
 }
 
-function Workflow({ offer, busy, dirty, run }: { offer: Offer; busy: boolean; dirty: boolean; run: (fn: () => Promise<{ offer: Offer }>) => Promise<void> }) {
+function Workflow({ offer, busy, dirty, run, since }: { offer: Offer; busy: boolean; dirty: boolean; run: (fn: () => Promise<{ offer: Offer }>) => Promise<void>; since: SinceApproval | null }) {
   const [reason, setReason] = useState("");
   const [verified, setVerified] = useState(today());
   const ok = reason.trim().length >= MIN_REASON;
@@ -220,6 +222,7 @@ function Workflow({ offer, busy, dirty, run }: { offer: Offer; busy: boolean; di
       <h2>Review and publish</h2>
       {offer.status === "draft" && <>
         <p className="hint">Approval checks the image, source link, consent reference, expiry, and that rates were verified in the last {VERIFY_DAYS} days.</p>
+        <SinceApprovalTable since={since} />
         {reasonBox("What did you check?", "e.g. Rates and terms match the provider's sheet dated 21 Oct")}
         {dirty && <p className="status warn" role="status">You have unsaved changes. Choose “Save changes” above first — approval checks the saved offer.</p>}
         <div className="actions"><button className="primary" disabled={!ok || busy || dirty} onClick={() => run(() => approveOffer(offer.id, offer.version, reason.trim()))}>Approve</button></div>
@@ -241,5 +244,32 @@ function Workflow({ offer, busy, dirty, run }: { offer: Offer; busy: boolean; di
       </>}
       {offer.status === "withdrawn" && <p className="muted">Withdrawn {fmt(offer.withdrawn_at)} by {offer.withdrawn_by}. Withdrawn offers stay withdrawn; create a new offer to list it again.</p>}
     </section>
+  );
+}
+
+const shown = (v: string | null) => (v == null || v === "" ? "—" : /^\d{4}-\d{2}-\d{2}T/.test(v) ? new Date(v).toLocaleDateString("en-GB", { dateStyle: "medium" }) : v);
+
+function FieldChanges({ rows, now = false }: { rows: FieldChange[]; now?: boolean }) {
+  return (
+    <div className="change">
+      <table>
+        <thead><tr><th scope="col">Field</th><th scope="col">{now ? "Last approved" : "Before"}</th><th scope="col">{now ? "Now (to approve)" : "After"}</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.field} className="changed"><th scope="row">{r.field}</th><td>{shown(r.before)}</td><td><strong>{shown(r.after)}</strong></td></tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Above Approve: exactly what differs from the version that was last approved. */
+function SinceApprovalTable({ since }: { since: SinceApproval | null }) {
+  if (!since) return <p className="consequence" role="note">Couldn't load what changed. Read every field above before approving.</p>;
+  if (since.since === "new") return <p className="hint">New offer, never approved: every field above is what borrowers will see. Read them all.</p>;
+  return (
+    <>
+      <p className="hint">Changed since {since.last_approved_by ?? "someone"} approved it{since.last_approved_at ? ` on ${new Date(since.last_approved_at).toLocaleDateString("en-GB", { dateStyle: "medium" })}` : ""}:</p>
+      {since.rows.length === 0 ? <p className="muted">No field changed.</p> : <FieldChanges rows={since.rows} now />}
+    </>
   );
 }

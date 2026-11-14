@@ -30,3 +30,8 @@ export function fakeAdmin(answer: Record<string, unknown> = {}, fail?: { match: 
   return { withAdmin: withAdmin as any, calls, sessions };
 }
 export const staffOk = (s: Staff = KJ) => vi.fn(async () => s);
+
+/** Fake portal-api: queries answer from `state` by op; commands go to `command`. */
+export function fakePortal(state: Record<string, unknown>, command: (cmd: any) => unknown = () => ({ ok: true })) {
+  return vi.fn(async (path: string, body: any) => (path === "query" ? state[body.op] ?? [] : command(body)));
+}

@@ -1,3 +1,4 @@
+import type { ChangeRow } from "../shared/ChangeTable";
 import { apiFetch } from "../auth/client";
 
 export type Status = "submitted" | "in_review" | "info_requested" | "approved" | "rejected" | "provisioned";
@@ -15,6 +16,7 @@ export type ProvisionRequest = {
   reason: string; status: "pending" | "approved" | "rejected" | "cancelled";
   maker_email: string; checker_email: string | null; decision_note: string | null; decided_at: string | null;
   created_at: string; version: number;
+  change?: { rows: ChangeRow[]; described?: boolean } | null;
 };
 export type View = { applications: Application[]; requests: ProvisionRequest[] };
 export type Invite = { email_sent: boolean } | { error: string };
