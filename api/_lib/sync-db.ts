@@ -2,22 +2,20 @@
  * Connections used ONLY by the outbox dispatcher.
  *
  * ADMIN_DB_WORKER_URL  Neon app_admin as app_admin_worker: can call
- *                      api.outbox_claim/ack/nack and nothing else.
- * APP_DB_SYNC_URL      App DB (Supabase pooler) as ficium_admin_sync: can call
- *                      admin.sync_apply and nothing else.
+ *                      api.outbox_claim/ack/nack and nothing else. TLS fully verified.
  *
- * TLS: Neon presents a publicly trusted certificate, so it is always fully
- * verified. The Supabase pooler uses Supabase's own CA: set APP_DB_CA_CERT
- * (the PEM from Supabase -> Database settings -> SSL) to verify it.
+ * Events reach the borrower app ONLY over its signed HTTPS API (app-sync.ts):
+ * services never connect to each other's databases. The old direct App DB
+ * connection (APP_DB_SYNC_URL, which skipped TLS verification without a CA)
+ * was removed on 2026-11-14. Without APP_ADMIN_SYNC_URL + APP_ADMIN_SYNC_SIGNING_KEY
+ * every event fails, is retried with backoff and dead-lettered, and the health
+ * check reports it: nothing is silently dropped.
  */
 import pg from "pg";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
 let neon: pg.Pool | null = null;
-let app: pg.Pool | null = null;
-let warned = false;
-let warnedLegacy = false;
 
 function need(name: string): string {
   const v = process.env[name];
@@ -64,18 +62,6 @@ function neonPool(): pg.Pool {
   return neon;
 }
 
-function appPool(): pg.Pool {
-  if (!app) {
-    const ca = process.env.APP_DB_CA_CERT;
-    if (!ca && !warned) { warned = true; console.warn("APP_DB_CA_CERT not set: App DB TLS certificate is not verified"); }
-    app = new pg.Pool({
-      connectionString: stripSslParams(need("APP_DB_SYNC_URL")), max: 1,
-      ssl: ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
-    });
-  }
-  return app;
-}
-
 export function liveDeps(): DispatchDeps {
   return {
     async claim(limit, leaseSeconds) {
@@ -84,10 +70,7 @@ export function liveDeps(): DispatchDeps {
            from api.outbox_claim($1, $2)`, [limit, leaseSeconds]);
       return r.rows as OutboxEvent[];
     },
-    // HTTPS to the app's API when configured (the target). The direct App DB
-    // connection below is legacy and goes away once every deployment has
-    // APP_ADMIN_SYNC_URL + APP_ADMIN_SYNC_SIGNING_KEY.
-    apply: appSyncConfigured() ? appSyncApply() : legacyApply,
+    apply: appSyncConfigured() ? appSyncApply() : notConfigured,
     async ack(id) { await neonPool().query("select api.outbox_ack($1::uuid)", [id]); },
     async nack(id, error) { await neonPool().query("select api.outbox_nack($1::uuid, $2)", [id, error]); },
     now: () => Date.now(),
@@ -106,14 +89,7 @@ export async function healthCheck(): Promise<Health> {
   return r.rows[0].h as Health;
 }
 
-/** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */
-async function legacyApply(e: OutboxEvent): Promise<Outcome> {
-  if (!warnedLegacy) {
-    warnedLegacy = true;
-    console.warn("admin sync uses the direct App DB connection: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY");
-  }
-  const r = await appPool().query(
-    "select admin.sync_apply($1::uuid, $2, $3, $4, $5::bigint, $6::jsonb) as outcome",
-    [e.id, e.topic, e.aggregate_type, e.aggregate_id, e.aggregate_version, JSON.stringify(e.payload)]);
-  return r.rows[0].outcome as Outcome;
+/** Fail closed: the event is nacked, retried and dead-lettered; health reports it. */
+async function notConfigured(): Promise<Outcome> {
+  throw new Error("admin sync not configured: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY");
 }

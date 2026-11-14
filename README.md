@@ -75,18 +75,17 @@ unreachable, it rolls back and nothing is recorded as done anywhere. Commands ar
 
 ### Switching the app site's sync to HTTPS
 
-The outbox worker delivers to the borrower app's API when both of these are set on the **app
-admin** project (otherwise it still uses the legacy `APP_DB_SYNC_URL` connection and logs a
-warning):
+The outbox worker delivers ONLY to the borrower app's API. Both of these must be set on the
+**app admin** project; without them every event fails, retries and is dead-lettered, and the
+health check reports it (the direct `APP_DB_SYNC_URL` connection was removed on 2026-11-14):
 
 | Name | Value |
 |---|---|
 | `APP_ADMIN_SYNC_URL` | `https://<borrower app host>/api/internal?op=admin-sync` |
 | `APP_ADMIN_SYNC_SIGNING_KEY` | new random key; the same value goes in the `ficium` Vercel project as `ADMIN_SYNC_VERIFY_KEYS` |
 
-After one successful sync over HTTPS: delete `APP_DB_SYNC_URL` and `APP_DB_CA_CERT` here, and
-remove LOGIN from `ficium_admin_sync` on the App DB. Then no service holds credentials to
-another service's database.
+Delete any leftover `APP_DB_SYNC_URL` and `APP_DB_CA_CERT` variables, and remove LOGIN from
+`ficium_admin_sync` on the App DB. Then no service holds credentials to another service's database.
 
 ### Deploying the portal admin site
 
@@ -123,8 +122,8 @@ visit to the `*.vercel.app` URL without an Access token gets 401. Deploying firs
 ### 1. Database logins (you — never paste passwords into a chat)
 Created in the Neon SQL Editor with `neondb` selected (never with the console's *Add role* button, which
 grants `neon_superuser`): `app_admin_backend` (in role `app_admin_api`) and `app_admin_worker` (in role
-`app_admin_dispatcher`). See [`db/admin-db/README.md`](db/admin-db/README.md). App DB side:
-`ALTER ROLE ficium_admin_sync LOGIN PASSWORD '…'` in the Supabase SQL editor. Letters and digits only.
+`app_admin_dispatcher`). See [`db/admin-db/README.md`](db/admin-db/README.md). There is no App DB
+login: the admin site reaches the borrower app only through its signed API.
 
 ### 2. Vercel project
 Vercel -> Add New -> Project -> import `Ficium001/ficium-admin` (grant the Vercel GitHub app access to this
@@ -133,7 +132,7 @@ private repo if asked). Framework preset: **Vite** (auto-detected). Environment 
 | Name | Value |
 |---|---|
 | `ADMIN_DB_API_URL` | Neon pooled host, user `app_admin_backend`, database `app_admin` (no `?sslmode`) |
-| `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`, `CRON_SECRET` | see *Publish path* below |
+| `ADMIN_DB_WORKER_URL`, `APP_ADMIN_SYNC_URL`, `APP_ADMIN_SYNC_SIGNING_KEY`, `CRON_SECRET` | see *Publish path* below |
 | `STAFF_EMAIL_DOMAIN` | `ficium.net` |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | leave unset until step 4 (the app stays closed) |
 
@@ -207,17 +206,16 @@ api.* writes change + audit + outbox ─► /api/outbox-dispatch ─► admin.sy
   admin API dispatches right after each write, so the sweep only handles retries.
 - `/api/outbox-dispatch` is **not** behind Cloudflare Access (the scheduler calls it directly); it requires
   `Authorization: Bearer $CRON_SECRET` and fails closed (503) without a 32+ character secret.
-- Two single-purpose credentials: `app_admin_worker` (Neon, outbox functions only) and
-  `ficium_admin_sync` (App DB, `admin.sync_apply` only). See `.env.example`.
+- One database credential: `app_admin_worker` (Neon, outbox functions only). The app is reached
+  over its signed API (`APP_ADMIN_SYNC_URL`). See `.env.example`.
 - Safe under retries, overlap and reordering: leases + `SKIP LOCKED` on the Neon side, per-aggregate
   version + event-id dedupe on the App DB side. Failures back off exponentially and dead-letter after
   12 attempts (`outbox.event.failed_at`).
 
-Enable it: (1) Supabase SQL editor: `ALTER ROLE ficium_admin_sync LOGIN PASSWORD '<password manager>';`
-(2) Doppler `ficium-admin/prd` → Vercel Production: `ADMIN_DB_WORKER_URL`, `APP_DB_SYNC_URL`, `APP_DB_CA_CERT`,
-`CRON_SECRET`; redeploy. (3) Supabase SQL editor, same secret value:
+Enable it: (1) Doppler `ficium-admin/prd` → Vercel Production: `ADMIN_DB_WORKER_URL`,
+`APP_ADMIN_SYNC_URL`, `APP_ADMIN_SYNC_SIGNING_KEY`, `CRON_SECRET`; redeploy. (2) Supabase SQL editor, same secret value:
 `select vault.create_secret('<CRON_SECRET>', 'admin_outbox_cron_secret');` then clear the editor history.
-Until (2) the endpoint answers 503; until (3) the sweep does nothing.
+Until (1) the endpoint answers 503; until (2) the sweep does nothing.
 
 ## Develop
 
