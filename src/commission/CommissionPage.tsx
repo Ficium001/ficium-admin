@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { claims } from "../auth/client";
-import { load, ask, approve, reject, withdraw, pct, scope, type View, type Rule, type ChangeRequest } from "./api";
+import { load, ask, approve, reject, withdraw, pct, scope, statement, statementCsv, type View, type Rule, type ChangeRequest, type Statement } from "./api";
 
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 const day = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-GB", { dateStyle: "medium" });
@@ -76,6 +76,8 @@ export default function CommissionPage() {
           </ol>
         </section>
       )}
+
+      <StatementSection banks={view.institutions} />
 
       <section className="history">
         <h2>Decisions</h2>
@@ -192,5 +194,63 @@ function EndForm({ rule, onCancel, onDone }: { rule: Rule; onCancel: () => void;
         <button type="submit" className="primary destructive" disabled={busy || reason.trim().length < 10}>{busy ? "Sending…" : "Send for approval"}</button>
       </div>
     </form>
+  );
+}
+
+const thisMonth = () => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 7);
+const money = (v: string | number, cur = "MUR") =>
+  `${cur} ${Number(v).toLocaleString("en-MU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function StatementSection({ banks }: { banks: View["institutions"] }) {
+  const [bank, setBank] = useState(banks[0]?.institution_id ?? "");
+  const [month, setMonth] = useState(thisMonth());
+  const [st, setSt] = useState<Statement | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const show = async () => {
+    setBusy(true); setErr("");
+    try { setSt(await statement(bank, month)); } catch (e) { setErr((e as Error).message); setSt(null); } finally { setBusy(false); }
+  };
+  const download = () => {
+    if (!st) return;
+    const url = URL.createObjectURL(new Blob([statementCsv(st)], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `ficium-commission-${st.institution.name.replace(/[^A-Za-z0-9]+/g, "-")}-${st.month}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+  const cur = st?.totals.currencies[0] ?? "MUR";
+  return (
+    <section className="history">
+      <h2>Statement</h2>
+      <p className="muted">Commission on the deals a bank booked in a month, exactly as each booking recorded it.</p>
+      <div className="actions left">
+        <label htmlFor="st-bank" className="sr-only">Bank</label>
+        <select id="st-bank" value={bank} onChange={(e) => { setBank(e.target.value); setSt(null); }}>
+          {banks.length === 0 && <option value="">No banks yet</option>}
+          {banks.map((b) => <option key={b.institution_id} value={b.institution_id}>{b.name}</option>)}
+        </select>
+        <label htmlFor="st-month" className="sr-only">Month</label>
+        <input id="st-month" type="month" value={month} max={thisMonth()} onChange={(e) => { setMonth(e.target.value); setSt(null); }} />
+        <button className="primary" disabled={busy || !bank || !month} onClick={show}>{busy ? "Loading…" : "Show statement"}</button>
+        {st && <button className="ghost" onClick={download}>Download CSV</button>}
+      </div>
+      {err && <p className="err" role="alert">{err}</p>}
+      {st && (st.lines.length === 0 ? <p className="muted">No deals booked by {st.institution.name} in {st.month}.</p> : (
+        <>
+          <table className="table">
+            <thead><tr><th>Booked</th><th>Product</th><th className="num">Deal</th><th className="num">Rate</th><th className="num">Commission</th><th>Status</th><th>Invoice</th></tr></thead>
+            <tbody>{st.lines.map((l) => (
+              <tr key={l.commission_id}>
+                <td>{day(l.booked_on)}</td><td>{l.product_name ?? l.product_code ?? "?"}</td>
+                <td className="num">{money(l.deal_amount, l.currency)}</td><td className="num">{pct(l.commission_rate)}</td>
+                <td className="num">{money(l.commission_amt, l.currency)}</td><td>{l.status}</td><td>{l.invoice_ref ?? "—"}</td>
+              </tr>
+            ))}</tbody>
+            <tfoot><tr><th colSpan={4}>Total, {st.totals.deals} deal{st.totals.deals === 1 ? "" : "s"}</th><th className="num">{money(st.totals.commission, cur)}</th><th colSpan={2} /></tr></tfoot>
+          </table>
+          <p className="hint">{Object.entries(st.totals.by_status).map(([k, v]) => `${k} ${money(v, cur)}`).join(" · ")}</p>
+        </>
+      ))}
+    </section>
   );
 }
