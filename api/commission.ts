@@ -2,6 +2,8 @@
  * Portal admin site only. Ficium's commission schedule.
  *
  * GET  /api/commission                -> { rules, institutions, products, requests }
+ * GET  /api/commission?statement=1&institution_id=<uuid>&month=YYYY-MM
+ *                                     -> { institution, month, lines, totals }   (read-only)
  * POST /api/commission { action, ... }
  *   request   { op: "commission.set", institution_id?, institution_name?, product_code?, product_name?,
  *               rate_percent, effective_from, reason }
@@ -37,8 +39,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRODUCT = /^[a-z][a-z0-9_]{1,39}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PERCENT = /^\d{1,2}(\.\d{1,2})?$/;
+const MONTH = /^20[2-9]\d-(0[1-9]|1[0-2])$/;
 const MAX_PERCENT = 5;
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+const one = (v: string | string[] | undefined) => ((Array.isArray(v) ? v[0] : v) ?? "").trim();
 
 class Bad extends Error {}
 const need = (ok: boolean, msg: string) => { if (!ok) throw new Bad(msg); };
@@ -97,6 +101,15 @@ export function makeHandler(deps: Deps) {
     const actor = bearer(req.headers);
 
     try {
+      if (req.method === "GET" && one(req.query?.statement)) {
+        const iid = one(req.query?.institution_id), month = one(req.query?.month);
+        if (!UUID.test(iid)) return res.status(400).json({ error: "Choose a bank" });
+        if (!MONTH.test(month)) return res.status(400).json({ error: "Choose a month (YYYY-MM)" });
+        await deps.withAdmin(staff, meta, async (q) => { await q("select api.require_permission('commission.read')"); });
+        const statement = await deps.portal("query", { op: "commission.statement", args: { institution_id: iid, month } }, actor);
+        return res.status(200).json(statement);
+      }
+
       if (req.method === "GET") {
         // The schedule lives in the portal: check the permission in the admin DB first.
         const requests = await deps.withAdmin(staff, meta, async (q) => {

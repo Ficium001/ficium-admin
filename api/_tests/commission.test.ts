@@ -96,3 +96,33 @@ describe("/api/commission (portal admin site)", () => {
     expect(db.calls.some((c) => c.sql.includes("record_result"))).toBe(false);
   });
 });
+
+describe("commission statement", () => {
+  const get = (query: Record<string, string>) => ({ method: "GET", headers: H, query });
+  const STATEMENT = { institution: { name: "MCB" }, month: "2026-11", lines: [], totals: { deals: 0, commission: "0" } };
+
+  it("checks commission.read, then asks portal-api for exactly that bank and month", async () => {
+    const db = fakeAdmin(); const portal = vi.fn(async () => STATEMENT);
+    const r = res(); await makeHandler(deps(db, portal) as any)(get({ statement: "1", institution_id: INST, month: "2026-11" }), r);
+    expect(r.code).toBe(200); expect(r.body).toEqual(STATEMENT);
+    expect(db.calls[0]!.sql).toContain("require_permission('commission.read')");
+    expect(portal).toHaveBeenCalledWith("query", { op: "commission.statement", args: { institution_id: INST, month: "2026-11" } }, "staff-token");
+  });
+
+  it.each([
+    [{ institution_id: "x", month: "2026-11" }, "Choose a bank"],
+    [{ institution_id: INST, month: "2026-13" }, "Choose a month"],
+    [{ institution_id: INST, month: "" }, "Choose a month"],
+  ])("refuses %j without asking anyone", async (q, msg) => {
+    const db = fakeAdmin(); const portal = vi.fn();
+    const r = res(); await makeHandler(deps(db, portal) as any)(get({ statement: "1", ...q }), r);
+    expect(r.code).toBe(400); expect(r.body.error).toContain(msg); expect(db.calls).toEqual([]); expect(portal).not.toHaveBeenCalled();
+  });
+
+  it("someone without commission.read never reaches the portal", async () => {
+    const db = fakeAdmin({}, { match: "commission.read", err: Object.assign(new Error("permission denied: commission.read"), { code: "42501" }) });
+    const portal = vi.fn();
+    const r = res(); await makeHandler(deps(db, portal) as any)(get({ statement: "1", institution_id: INST, month: "2026-11" }), r);
+    expect(r.code).toBe(403); expect(portal).not.toHaveBeenCalled();
+  });
+});
