@@ -11,7 +11,9 @@ const VIEW = { v: { actor: "kj@ficium.net", can_request: true, can_approve: true
   policy: [{ platform: "android", latest_version: "1.0.0", min_version: "1.0.0", store_url: "", version: 0 }], requests: [] } };
 const USAGE: AppUsage = { generated_at: "2026-11-16T08:00:00Z",
   policy: [{ platform: "android", min_version: "1.0.0", latest_version: "1.0.0", store_url: "", version: 0, updated_at: "2026-11-16T07:00:00Z" }],
-  versions: [{ platform: "android", app_version: "1.0.0", active_7d: 4, active_30d: 9 }] };
+  versions: [{ platform: "android", app_version: "1.0.0", active_7d: 4, active_30d: 9 }],
+  errors: [{ platform: "android", app_version: "1.0.0", fingerprint: "0123456789abcdef", kind: "error", message: "TypeError: x", location: "assets/a.js:1:2",
+    route: "/requests/:id", borrowers_7d: 3, occurrences_7d: 7, last_seen_at: "2026-11-16T07:30:00Z" }] };
 const post = (b: Record<string, unknown>) => ({ method: "POST", headers: { "x-forwarded-for": "203.0.113.9", "x-vercel-id": "req-1" }, body: b });
 const ask = { op: "request", platform: "android", latest_version: "1.1.0", min_version: "1.0.0",
   store_url: " https://play.google.com/store/apps/details?id=net.ficium.app ", reason: "1.1.0 went live on Google Play today" };
@@ -186,7 +188,13 @@ describe("reading usage from the borrower app", () => {
   it("keeps only known fields and turns junk counts into zero", () => {
     const out = cleanUsage({ generated_at: 5, extra: "x", policy: "nope",
       versions: [{ platform: "ios", app_version: "1.0.0", active_7d: "12", active_30d: -3, client_ids: ["leak"] }, null] });
-    expect(out).toEqual({ generated_at: "5", policy: [], versions: [
+    expect(out.errors).toEqual([]);
+    const noisy = cleanUsage({ errors: [{ platform: "ios", app_version: "1.0.0", fingerprint: "0123456789abcdefEXTRA", kind: "error", message: "m".repeat(900),
+      location: "l".repeat(900), route: "r".repeat(900), borrowers_7d: "4", occurrences_7d: -1, last_seen_at: 7, client_id: "leak" }, ...Array(80).fill({})] });
+    expect(noisy.errors).toHaveLength(50);
+    expect(noisy.errors[0]).toEqual({ platform: "ios", app_version: "1.0.0", fingerprint: "0123456789abcdef", kind: "error", message: "m".repeat(300),
+      location: "l".repeat(200), route: "r".repeat(120), borrowers_7d: 4, occurrences_7d: 0, last_seen_at: "7" });
+    expect(out).toEqual({ generated_at: "5", policy: [], errors: [], versions: [
       { platform: "ios", app_version: "1.0.0", active_7d: 12, active_30d: 0 },
       { platform: "", app_version: "", active_7d: 0, active_30d: 0 }] });
   });

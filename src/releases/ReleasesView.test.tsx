@@ -50,6 +50,20 @@ describe("App releases page", () => {
     expect(t).toContain("Not set: the update screen shows no button");
   });
 
+  it("lists the errors the apps reported, most widespread first, as plain text", () => {
+    const withErrors: Loaded = { ...base, usage: { ...base.usage!, errors: [
+      { platform: "android", app_version: "1.10.0", fingerprint: "0123456789abcdef", kind: "error", message: "TypeError: Cannot read 'amount' of undefined <b>x</b>",
+        location: "assets/RequestDetail-Cdq.js:1:2345", route: "/requests/:id", borrowers_7d: 1200, occurrences_7d: 5400, last_seen_at: "2026-11-16T07:30:00Z" },
+      { platform: "android", app_version: "1.8.0", fingerprint: "fedcba9876543210", kind: "render", message: "Error: old screen", location: "", route: "", borrowers_7d: 2, occurrences_7d: 2, last_seen_at: "" },
+    ] } };
+    const html = renderToStaticMarkup(<ReleasesView state={withErrors} onRequest={noop} onDecide={noop} />);
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");          // never markup
+    const t = text(withErrors);
+    expect(t).toMatch(/Uncaught error · on \/requests\/:id · assets\/RequestDetail-Cdq\.js:1:2345 1\.10\.0 1,200 5,400/);
+    expect(t).toMatch(/Screen failed to draw 1\.8\.0 \(blocked\) 2 2 —/);
+    expect(t).toContain("No errors reported by this app in the last 7 days.");   // the iOS panel
+  });
+
   it("says when an approved change has not reached the apps yet", () => {
     const t = text({ ...base, usage: { ...base.usage!, policy: [{ platform: "android", version: 1 }, { platform: "ios", version: 0 }] } });
     expect(t).toContain("Approved, not yet delivered to the apps");

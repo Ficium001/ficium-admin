@@ -9,7 +9,9 @@ export type Request = Terms & {
   status: "pending" | "approved" | "rejected" | "withdrawn" | "expired";
   maker: string; checker: string | null; decision_note: string | null; created_at: string; expires_at: string;
   decided_at: string | null; version: number; mine: boolean };
-export type Usage = { generated_at: string; policy: { platform: string; version: number }[]; versions: VersionUsage[] };
+export type AppError = { platform: string; app_version: string; fingerprint: string; kind: string; message: string;
+  location: string; route: string; borrowers_7d: number; occurrences_7d: number; last_seen_at: string };
+export type Usage = { generated_at: string; policy: { platform: string; version: number }[]; versions: VersionUsage[]; errors?: AppError[] };
 export type State = { actor: string; can_request: boolean; can_approve: boolean; policy: Policy[]; requests: Request[] };
 export type Loaded = State & { usage: Usage | null; usage_error: string | null };
 
