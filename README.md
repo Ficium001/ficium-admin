@@ -6,6 +6,12 @@ Ficium's internal staff app. Not customer-facing. Modules:
   approve; never your own request), with a required reason and a full change history.
 - **Offers** — create, approve, publish, re-verify and withdraw the provider offers shown in the borrower
   app's Offers feed. See *Offers* below.
+- **App releases** — which versions of the iPhone and Android apps may still run. Per platform: the
+  latest version in the store, the minimum version allowed (anything older must update before it can be
+  used) and the store link. Every change is four-eyes: one admin asks with a reason, a different admin
+  approves. The admin DB refuses a minimum above the latest released version. The page also shows how
+  many borrowers used each app version in the last 7 and 30 days (totals read from the borrower app's
+  signed API), and how many a new minimum would block, before it is asked for. See *App releases* below.
 - **Team** — invite Ficium staff, change their roles, suspend or disable them. An invite is one admin-DB
   transaction (`api.iam_invite`, needs `iam.manage`) that also creates the person's ficium-auth login
   *as the inviter* (`POST /auth/staff/provision`, which itself requires an MFA staff token). New logins get
@@ -53,7 +59,7 @@ its own admin database, its own credentials and its own URL.
 | | App admin | Portal admin |
 |---|---|---|
 | `ADMIN_SITE` / `VITE_ADMIN_SITE` | `app` (default) | `portal` |
-| Modules | KYC checks, Offers, Team | Banks, Roles, Compliance, Commission, Audit, Team |
+| Modules | Borrowers, KYC checks, KYC reviews, Offers, App releases, Audit, Team | Banks, Roles, Compliance, Commission, Audit, Team |
 | Admin DB (`ADMIN_DB_API_URL`) | Neon `app_admin` | Neon `portal_admin` |
 | Reaches the product | app `/api/internal?op=admin-sync` over HTTPS (signed) | portal-api `/internal/admin/v1` over HTTPS only |
 
@@ -72,6 +78,26 @@ asks, a different admin approves, enforced in the admin DB and again by portal-a
 the admin-DB transaction stays open across the portal call; if the portal refuses or is
 unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
 `command_id`, so a retry never applies twice.
+
+### App releases
+
+```
+admin asks ─► release.change_request ─► a different admin approves ─► release.policy (version + 1)
+                                                                        └─► outbox: app.release_policy_changed
+borrower app: /api/internal?op=admin-sync ─► public.app_release_policy ─► read by every installed app
+borrower app: /api/internal?op=admin-app  ◄─ this page reads totals per app version (signed, no personal data)
+```
+
+- Migration: `db/admin-db/app_admin/0010_app_release.sql`, applied to `app_admin` on 2026-11-16 (recorded
+  in `meta.schema_migration`, so `migrate.sh app_admin` reports it as up to date). The borrower app's
+  matching migration (`20261116120000_app_release_policy.sql`) was applied to the App DB the same day.
+- Permissions: `release.view` (all roles), `release.request` (super admin, operations),
+  `release.approve` (super admin, compliance). Never your own request.
+- The API is served by the `api/kyc.ts` function file as `/api/kyc?module=releases`, because the Vercel
+  plan allows 12 function files and this site has 12. The handler is `api/_lib/releases.ts`.
+- "In force in the apps" on the page means the borrower app has applied the same policy version as the
+  admin DB. "Not yet delivered" means the outbox is still retrying (hourly, alert after dead-letter).
+- `db/admin-db/tests/app_release.sql` exercises the whole workflow against a scratch database.
 
 ### Switching the app site's sync to HTTPS
 

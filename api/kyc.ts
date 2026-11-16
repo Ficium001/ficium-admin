@@ -9,14 +9,19 @@
  * The admin DB enforces all of it (kyc.change / kyc.approve, never your own
  * request, 72 h expiry, stale if the check changed). A change is pushed to the
  * App DB right after it commits (and retried hourly).
+ *
+ * This file also serves /api/kyc?module=releases (mobile app releases, _lib/releases.ts): the
+ * Vercel plan allows 12 function files and this site has 12. The two handlers share nothing
+ * but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { CHECKS, MIN_REASON } from "./_lib/checks.js";
 import { isUuid } from "./_lib/offers.js";
 import { onlyOn } from "./_lib/site.js";
+import { makeHandler as makeReleasesHandler, live as liveReleases } from "./_lib/releases.js";
 
-type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
+type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
 
 export type Deps = {
@@ -91,4 +96,12 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default onlyOn("app", makeHandler(live));
+/** One function file, two modules: `?module=releases` goes to the releases handler, anything else is KYC. */
+export function route(kyc: (req: Req, res: Res) => unknown, releases: (req: Req, res: Res) => unknown) {
+  return (req: Req, res: Res) => {
+    const m = req.query?.module;
+    return (Array.isArray(m) ? m[0] : m) === "releases" ? releases(req, res) : kyc(req, res);
+  };
+}
+
+export default onlyOn("app", route(makeHandler(live), (req, res) => makeReleasesHandler(liveReleases())(req, res)));
