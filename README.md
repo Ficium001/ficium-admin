@@ -88,9 +88,9 @@ borrower app: /api/internal?op=admin-sync ─► public.app_release_policy ─�
 borrower app: /api/internal?op=admin-app  ◄─ this page reads totals per app version (signed, no personal data)
 ```
 
-- Migration: `db/admin-db/app_admin/0010_app_release.sql` (**pending:** run `migrate.sh app_admin`). The
-  borrower app needs its matching migration (`20261116120000_app_release_policy.sql`) applied first, or
-  the first approved change is refused there and retried until it is.
+- Migration: `db/admin-db/app_admin/0010_app_release.sql`, applied to `app_admin` on 2026-11-16 (recorded
+  in `meta.schema_migration`, so `migrate.sh app_admin` reports it as up to date). The borrower app's
+  matching migration (`20261116120000_app_release_policy.sql`) was applied to the App DB the same day.
 - Permissions: `release.view` (all roles), `release.request` (super admin, operations),
   `release.approve` (super admin, compliance). Never your own request.
 - The API is served by the `api/kyc.ts` function file as `/api/kyc?module=releases`, because the Vercel
