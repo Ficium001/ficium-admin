@@ -21,6 +21,8 @@ const LINK_EXAMPLE: Record<Platform, string> = {
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 const people = (n: number) => `${n.toLocaleString("en-GB")} borrower${n === 1 ? "" : "s"}`;
 
+const KIND: Record<string, string> = { error: "Uncaught error", rejection: "Failed background task", render: "Screen failed to draw" };
+
 const STATUS_LABEL: Record<VersionStatus, { text: string; pill: string }> = {
   blocked: { text: "Blocked: must update", pill: "danger" },
   supported: { text: "Allowed", pill: "" },
@@ -131,6 +133,7 @@ function PlatformPanel({ policy, usage, pending, canRequest, canApprove, editing
   const rows = (usage?.versions ?? []).filter((u) => u.platform === platform);
   const inApp = usage?.policy.find((x) => x.platform === platform)?.version;
   const delivered = inApp === undefined ? null : inApp >= policy.version;
+  const errors = (usage?.errors ?? []).filter((e) => e.platform === platform);
   const total7 = rows.reduce((n, u) => n + u.active_7d, 0), total30 = rows.reduce((n, u) => n + u.active_30d, 0);
   const { blocked } = blockedBy(policy.min_version, platform, rows);
 
@@ -182,6 +185,28 @@ function PlatformPanel({ policy, usage, pending, canRequest, canApprove, editing
               </table>
               <p className="hint">Signed-in borrowers only, counted once each by the version they last used. As of {fmt(usage.generated_at)}.</p>
             </>}
+
+      {usage !== null && (errors.length === 0
+        ? <p className="muted">No errors reported by this app in the last 7 days.</p>
+        : <>
+            <table className="table">
+              <caption className="sr-only">Errors reported by the app in the last 7 days, {NAME[platform]}</caption>
+              <thead><tr><th scope="col">Error in the last 7 days</th><th scope="col">Version</th><th scope="col" className="num">Borrowers</th><th scope="col" className="num">Times</th><th scope="col">Last seen</th></tr></thead>
+              <tbody>{errors.map((e) => (
+                <tr key={`${e.app_version}-${e.fingerprint}`}>
+                  <th scope="row">
+                    {e.message}
+                    <br /><span className="muted">{KIND[e.kind] ?? e.kind}{e.route ? ` · on ${e.route}` : ""}{e.location ? ` · ${e.location}` : ""}</span>
+                  </th>
+                  <td>{e.app_version}{statusOf(e.app_version, policy) === "blocked" ? " (blocked)" : ""}</td>
+                  <td className="num">{e.borrowers_7d.toLocaleString("en-GB")}</td>
+                  <td className="num">{e.occurrences_7d.toLocaleString("en-GB")}</td>
+                  <td>{e.last_seen_at ? fmt(e.last_seen_at) : "—"}</td>
+                </tr>))}
+              </tbody>
+            </table>
+            <p className="hint">Most widespread first. Reported by signed-in apps, with emails, tokens, ids and long numbers removed. Crashes in the native shell appear in the store consoles, not here.</p>
+          </>)}
 
       {pending && <Waiting req={pending} usage={usage} canApprove={canApprove} onDecide={(op, note) => onDecide(op, pending, note)} />}
 

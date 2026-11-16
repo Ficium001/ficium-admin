@@ -97,6 +97,9 @@ borrower app: /api/internal?op=admin-app  ◄─ this page reads totals per app 
   plan allows 12 function files and this site has 12. The handler is `api/_lib/releases.ts`.
 - "In force in the apps" on the page means the borrower app has applied the same policy version as the
   admin DB. "Not yet delivered" means the outbox is still retrying (hourly, alert after dead-letter).
+- The page also lists the errors the phone apps reported in the last 7 days, per app version, most
+  widespread first (read with the usage totals; scrubbed of personal-looking data by the app and by
+  its database). Crashes in the native shell itself appear in the store consoles, not here.
 - `db/admin-db/tests/app_release.sql` exercises the whole workflow against a scratch database.
 
 ### Switching the app site's sync to HTTPS
