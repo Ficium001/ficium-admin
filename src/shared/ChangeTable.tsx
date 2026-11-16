@@ -6,7 +6,9 @@
 export type ChangeRow = { field: string; before: string | null; after: string | null };
 export type Described = { change?: { rows: ChangeRow[]; described?: boolean } | null };
 
-export default function ChangeTable({ r, decided = false }: { r: Described; decided?: boolean }) {
+const PORTAL_HINT = "Read from the portal when the request was made. If the record changes before approval, approval is refused.";
+
+export default function ChangeTable({ r, decided = false, hint = PORTAL_HINT }: { r: Described; decided?: boolean; hint?: string | null }) {
   const rows = r.change?.rows ?? [];
   if (rows.length === 0) {
     return <p className="consequence" role="note">This request was made before changes were recorded. Check the record yourself before approving.</p>;
@@ -27,7 +29,7 @@ export default function ChangeTable({ r, decided = false }: { r: Described; deci
           );
         })}</tbody>
       </table>
-      {!decided && <p className="hint">Read from the portal when the request was made. If the record changes before approval, approval is refused.</p>}
+      {!decided && hint && <p className="hint">{hint}</p>}
     </div>
   );
 }
