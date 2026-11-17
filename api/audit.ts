@@ -9,11 +9,15 @@
  * audit.read itself. source=portal (portal site only): the portal's audit
  * trail, read through portal-api after the admin DB confirms audit.read.
  * Read-only.
+ *
+ * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts): the
+ * Vercel plan allows 12 function files and this repo has 12. The two handlers share nothing but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/portal-api.js";
 import { currentSite } from "./_lib/site.js";
+import { makeHandler as makeTrafficHandler, live as liveTraffic } from "./_lib/api-traffic.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -77,4 +81,12 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default makeHandler(live);
+/** One function file, two modules: `?module=traffic` goes to the API traffic handler, anything else is the audit log. */
+export function route(audit: (req: Req, res: Res) => unknown, traffic: (req: Req, res: Res) => unknown) {
+  return (req: Req, res: Res) => {
+    const m = req.query?.module;
+    return (Array.isArray(m) ? m[0] : m) === "traffic" ? traffic(req, res) : audit(req, res);
+  };
+}
+
+export default route(makeHandler(live), (req, res) => makeTrafficHandler(liveTraffic())(req as any, res));

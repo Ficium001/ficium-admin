@@ -11,14 +11,15 @@ import RolesPage from "./roles/RolesPage";
 import AuditPage from "./audit/AuditPage";
 import CommissionPage from "./commission/CommissionPage";
 import ReleasesPage from "./releases/ReleasesPage";
+import ApiTrafficPage from "./traffic/ApiTrafficPage";
 import Gate from "./auth/Gate";
 import ResetPassword from "./auth/ResetPassword";
 import { SITE, SITE_NAME } from "./site";
 
 // Each site only shows (and its API only serves) its own modules.
 const SECTIONS = SITE === "portal"
-  ? [{ key: "applications", label: "Applications" }, { key: "institutions", label: "Banks" }, { key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "commission", label: "Commission" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const
-  : [{ key: "clients", label: "Borrowers" }, { key: "kyc", label: "KYC checks" }, { key: "reviews", label: "KYC reviews" }, { key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const;
+  ? [{ key: "applications", label: "Applications" }, { key: "institutions", label: "Banks" }, { key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "commission", label: "Commission" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const
+  : [{ key: "clients", label: "Borrowers" }, { key: "kyc", label: "KYC checks" }, { key: "reviews", label: "KYC reviews" }, { key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const;
 type Section = (typeof SECTIONS)[number]["key"];
 const fromHash = (): Section => {
   const k = window.location.hash.slice(1);
@@ -53,6 +54,7 @@ function Admin() {
         : section === "commission" ? <CommissionPage />
         : section === "offers" ? <OffersPage />
         : section === "releases" ? <ReleasesPage />
+        : section === "traffic" ? <ApiTrafficPage />
         : section === "team" ? <TeamPage />
         : section === "reviews" ? <ReviewsPage />
         : section === "clients" ? <ClientsPage />
