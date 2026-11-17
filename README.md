@@ -102,6 +102,43 @@ borrower app: /api/internal?op=admin-app  ◄─ this page reads totals per app 
   its database). Crashes in the native shell itself appear in the store consoles, not here.
 - `db/admin-db/tests/app_release.sql` exercises the whole workflow against a scratch database.
 
+### API traffic
+
+One page on both sites ("API traffic") that shows every API channel the product uses, in and out, and can
+pause one. Per channel: calls, failures (5xx and no answer), refused (4xx, the caller's mistake), median and
+slow (p95) time, last success, last error, and a 24-hour strip. Shown as the product reports it, so each site
+sees only its own product.
+
+```
+app site:    page ─► api.traffic_* (admin DB, audited) ─► outbox: api.channel_policy_changed ─► /api/internal?op=admin-sync
+             page ◄─ /api/internal?op=admin-app {"action":"traffic"} (signed, totals only)
+portal site: page ─► api.traffic_* (admin DB, audited) ─► portal-api /internal/admin/v1/commands (api_channel.pause|resume)
+             page ◄─ portal-api /internal/admin/v1/query (traffic.overview)
+```
+
+- Migrations: `db/admin-db/app_admin/0011_api_traffic.sql` and `db/admin-db/portal_admin/0010_api_traffic.sql`.
+  Product side: `ficium` `20261117090000_api_traffic.sql` and `ficium-portal-api` `db/064_api_traffic.sql`.
+  Apply the product migrations first, then these, then deploy the products, then this site.
+- Pause is immediate, one person (`traffic.control`: super admin, operations). Resume is four-eyes
+  (`traffic.control` asks, a different person with `traffic.approve` approves; 72 h to act). Seeing the page is
+  `traffic.view`. Every change is in the hash-chained audit log with its reason.
+- The admin channel itself (and, on the portal, bank staff using the portal) can be monitored but never paused;
+  the databases on both sides refuse it, so a bug in the page cannot lock everyone out.
+- What a pause does: inbound channels answer `503 channel_paused` with `Retry-After` before doing any work;
+  outbound event channels stop claiming from the outbox, and a sender that meets a paused receiver holds the
+  event without using a retry attempt, so a long pause cannot dead-letter anything. Bid acceptance and document
+  sending refuse with "try again shortly" before anything is prepared. Bank webhooks are recorded as held and
+  never count toward auto-disabling an endpoint. While the AI steps of KYC are paused they behave exactly as
+  when the provider is down (the AI review is skipped; ID reading falls back to typing it in).
+- A version number per channel makes a replay or a late delivery harmless: a product applies only a newer one.
+  If the product is unreachable the page says so and still shows the admin side's state.
+- The API is served by `api/audit.ts` as `?module=traffic` (12-function limit). Handler: `api/_lib/api-traffic.ts`.
+  Env: the app site reuses `APP_ADMIN_SYNC_URL` and `APP_ADMIN_SYNC_SIGNING_KEY`; the portal site reuses the
+  portal-api settings above. Nothing new to configure.
+- Counts are monitoring-grade: servers batch in memory and write at most every ~10 s each, so the last seconds
+  of a busy server can be missing after it is recycled. Not an audit record; the audit log is.
+- Tests: `db/admin-db/tests/api_traffic.sql`, `api_traffic_portal.sql`, `api/_tests/api-traffic.test.ts`.
+
 ### Switching the app site's sync to HTTPS
 
 The outbox worker delivers to the borrower app's API when both of these are set on the **app
