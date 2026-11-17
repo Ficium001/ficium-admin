@@ -10,14 +10,16 @@
  * trail, read through portal-api after the admin DB confirms audit.read.
  * Read-only.
  *
- * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts): the
- * Vercel plan allows 12 function files and this repo has 12. The two handlers share nothing but the file.
+ * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts) and
+ * /api/audit?module=services (service health, both sites, _lib/services.ts): the Vercel plan allows
+ * 12 function files and this repo has 12. The handlers share nothing but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin-db.js";
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/portal-api.js";
 import { currentSite } from "./_lib/site.js";
 import { makeHandler as makeTrafficHandler, live as liveTraffic } from "./_lib/api-traffic.js";
+import { makeHandler as makeServicesHandler, live as liveServices } from "./_lib/services.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -81,12 +83,21 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-/** One function file, two modules: `?module=traffic` goes to the API traffic handler, anything else is the audit log. */
-export function route(audit: (req: Req, res: Res) => unknown, traffic: (req: Req, res: Res) => unknown) {
+/** One function file, three modules: `?module=traffic`, `?module=services`, anything else is the audit log. */
+export function route(
+  audit: (req: Req, res: Res) => unknown,
+  traffic: (req: Req, res: Res) => unknown,
+  services: (req: Req, res: Res) => unknown = audit,
+) {
   return (req: Req, res: Res) => {
-    const m = req.query?.module;
-    return (Array.isArray(m) ? m[0] : m) === "traffic" ? traffic(req, res) : audit(req, res);
+    const raw = req.query?.module;
+    const m = Array.isArray(raw) ? raw[0] : raw;
+    return m === "traffic" ? traffic(req, res) : m === "services" ? services(req, res) : audit(req, res);
   };
 }
 
-export default route(makeHandler(live), (req, res) => makeTrafficHandler(liveTraffic())(req as any, res));
+export default route(
+  makeHandler(live),
+  (req, res) => makeTrafficHandler(liveTraffic())(req as any, res),
+  (req, res) => makeServicesHandler(liveServices())(req as any, res),
+);

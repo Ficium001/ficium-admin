@@ -168,3 +168,7 @@ h1, h2, p { margin: 0; }
 .spark .bar { fill: #9aa7b4; }
 .spark .bar.err { fill: var(--red); }
 .lasterr { margin-top: 10px; font-size: 0.85rem; color: var(--red); overflow-wrap: anywhere; }
+
+/* Services: the per-row explanation of what a test proves. */
+.table details { margin-top: 6px; font-size: 0.85rem; font-weight: normal; }
+.table details p { margin: 4px 0; }
