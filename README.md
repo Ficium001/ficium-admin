@@ -59,7 +59,7 @@ its own admin database, its own credentials and its own URL.
 | | App admin | Portal admin |
 |---|---|---|
 | `ADMIN_SITE` / `VITE_ADMIN_SITE` | `app` (default) | `portal` |
-| Modules | Borrowers, KYC checks, KYC reviews, Offers, App releases, Audit, Team | Banks, Roles, Compliance, Commission, Audit, Team |
+| Modules | Borrowers, KYC checks, KYC reviews, Offers, App releases, Services, API traffic, Audit, Team | Applications, Banks, Roles, Compliance, Commission, Services, API traffic, Audit, Team |
 | Admin DB (`ADMIN_DB_API_URL`) | Neon `app_admin` | Neon `portal_admin` |
 | Reaches the product | app `/api/internal?op=admin-sync` over HTTPS (signed) | portal-api `/internal/admin/v1` over HTTPS only |
 
@@ -78,6 +78,31 @@ asks, a different admin approves, enforced in the admin DB and again by portal-a
 the admin-DB transaction stays open across the portal call; if the portal refuses or is
 unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
 `command_id`, so a retry never applies twice.
+
+### Services
+
+Both sites. Every service the site depends on, whether it is answering right now, and a **Test** button
+per service (`api/_lib/services.ts`, served as `/api/audit?module=services`: the site is at the 12-function cap).
+
+| App site | Portal site | Test |
+|---|---|---|
+| This admin API | This admin API | answering the request |
+| Admin DB (`app_admin`) | Admin DB (`portal_admin`) | `select 1`, timed |
+| Sign-in service (ficium-auth) | Sign-in service | `GET /.well-known/jwks.json`, keys present |
+| Borrower app | Portal API | `GET /api/keepalive` (also App DB and missing migrations) / `GET /health` |
+| Channel to the borrower app | Channel to the portal | the existing signed read (`op=admin-app` stats / query `traffic.overview`) |
+| Delivery of changes | — | outbox backlog and dead letters (`api.ops_health_view`, needs `audit.read`) |
+
+- **No address ever comes from the browser.** The page sends a service key; the server looks the test up
+  in a fixed registry and refuses any key the site does not list. This is what stops the button from being
+  a request-forging tool against anything the deployment can reach.
+- **Every test only reads.** No endpoint that writes is in the registry, which is why a test can be run at
+  any time. That is also why this is a list of services, not of every endpoint: testing a write endpoint
+  (accepting a bid, say) would perform it.
+- Gated by `traffic.view` (all roles), checked in the admin DB before anything is probed. No migration.
+- The same service is not tested twice within 3 seconds (per instance, best effort).
+- The portal API's `/health` does not touch its database; the channel test does. Each row says what its test
+  proves and what it does not.
 
 ### App releases
 
