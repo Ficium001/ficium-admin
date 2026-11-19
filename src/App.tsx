@@ -16,16 +16,12 @@ import ServicesPage from "./services/ServicesPage";
 import Gate from "./auth/Gate";
 import ResetPassword from "./auth/ResetPassword";
 import { SITE, SITE_NAME } from "./site";
+import { navFor, sectionFrom } from "./nav";
+import Sidebar from "./Sidebar";
 
-// Each site only shows (and its API only serves) its own modules.
-const SECTIONS = SITE === "portal"
-  ? [{ key: "applications", label: "Applications" }, { key: "institutions", label: "Banks" }, { key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "commission", label: "Commission" }, { key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const
-  : [{ key: "clients", label: "Borrowers" }, { key: "kyc", label: "KYC checks" }, { key: "reviews", label: "KYC reviews" }, { key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }, { key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }, { key: "team", label: "Team" }] as const;
-type Section = (typeof SECTIONS)[number]["key"];
-const fromHash = (): Section => {
-  const k = window.location.hash.slice(1);
-  return (SECTIONS.find((s) => s.key === k)?.key ?? SECTIONS[0].key) as Section;
-};
+// Each site only shows (and its API only serves) its own modules, grouped in src/nav.ts.
+const NAV = navFor(SITE);
+const fromHash = () => sectionFrom(window.location.hash, NAV);
 
 export default function App() {
   useEffect(() => { document.title = SITE_NAME; }, []);
@@ -34,7 +30,7 @@ export default function App() {
 }
 
 function Admin() {
-  const [section, setSection] = useState<Section>(fromHash);
+  const [section, setSection] = useState<string>(fromHash);
   useEffect(() => {
     const on = () => setSection(fromHash());
     window.addEventListener("hashchange", on);
@@ -42,11 +38,9 @@ function Admin() {
   }, []);
   return (
     <Gate>
-      <nav className="sections" aria-label="Admin sections">
-        {SECTIONS.map((s) => (
-          <a key={s.key} href={`#${s.key}`} aria-current={section === s.key ? "page" : undefined}>{s.label}</a>
-        ))}
-      </nav>
+      <div className="layout">
+      <Sidebar nav={NAV} current={section} />
+      <div className="layout-main">
       {section === "applications" ? <ApplicationsPage />
         : section === "institutions" ? <InstitutionsPage />
         : section === "roles" ? <RolesPage />
@@ -61,6 +55,8 @@ function Admin() {
         : section === "reviews" ? <ReviewsPage />
         : section === "clients" ? <ClientsPage />
         : <KycPage />}
+      </div>
+      </div>
     </Gate>
   );
 }

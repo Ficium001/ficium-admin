@@ -16,7 +16,7 @@ export default function KycPage() {
   useEffect(() => { refresh(); }, []);
 
   if (error && !state) return <main className="shell"><p className="fatal" role="alert">{error}</p></main>;
-  if (!state) return <main className="shell"><p className="muted">Loading KYC checks…</p></main>;
+  if (!state) return <main className="shell"><p className="muted">Loading KYC settings…</p></main>;
   if (!state.settings) return <main className="shell"><p className="fatal" role="alert">No KYC settings found in the admin database.</p></main>;
 
   const off = CHECKS.filter((c) => state.settings![c.key] === false);
@@ -27,7 +27,7 @@ export default function KycPage() {
   return (
     <main className="shell">
       <header className="top">
-        <h1>KYC checks</h1>
+        <h1>KYC settings</h1>
         <p className="who">Signed in as {state.actor}</p>
       </header>
 
