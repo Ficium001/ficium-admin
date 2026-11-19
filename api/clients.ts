@@ -11,6 +11,9 @@
  *
  * Borrower data comes from the borrower app over its signed API. Requests and decisions live in
  * the admin database (audited); an approved change reaches the app through the outbox.
+ *
+ * This file also serves /api/clients?module=dp (data protection requests, _lib/data-protection.ts):
+ * the Vercel plan allows 12 function files and this repo has 12.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
@@ -18,6 +21,7 @@ import { appClients, AppClientsError, type AppClients } from "./_lib/app-clients
 import { MIN_REASON } from "./_lib/checks.js";
 import { isUuid } from "./_lib/offers.js";
 import { onlyOn } from "./_lib/site.js";
+import { makeHandler as makeDpHandler, live as liveDp } from "./_lib/data-protection.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -130,4 +134,15 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-export default onlyOn("app", (req: Req, res: Res) => makeHandler(live())(req, res));
+/** One function file, two modules: `?module=dp` is data protection requests, anything else is borrower support. */
+export function route(clients: (req: Req, res: Res) => unknown, dp: (req: Req, res: Res) => unknown) {
+  return (req: Req, res: Res) => {
+    const raw = req.query?.module;
+    return (Array.isArray(raw) ? raw[0] : raw) === "dp" ? dp(req, res) : clients(req, res);
+  };
+}
+
+export default onlyOn("app", route(
+  (req, res) => makeHandler(live())(req, res),
+  (req, res) => makeDpHandler(liveDp())(req, res),
+));

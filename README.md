@@ -79,6 +79,24 @@ the admin-DB transaction stays open across the portal call; if the portal refuse
 unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
 `command_id`, so a retry never applies twice.
 
+### Data protection
+
+App site, under **Customers**. Requests from people about their personal data under the Data Protection
+Act 2017 (a copy, correction, erasure, restriction, objection, an automated decision, withdrawn consent),
+and the retention schedule.
+
+- Each request gets a reference (DP-0001), a deadline **one month from receipt** for every kind (the Data
+  Protection Office's guidance for access; the others are "without undue delay"), an owner and an
+  append-only timeline. The database refuses to start work, or complete it, before the requester's identity
+  check is recorded.
+- `dp.view` / `dp.manage` (super admin, compliance, operations; not read-only: requests hold names and
+  contacts). Completing or refusing needs `dp.close` (super admin, compliance). Every step is audited.
+- The retention schedule is seeded with what the borrower app enforces today (error reports and traffic
+  counts 35 days; non-regulated data deleted at closure; regulated records at least 7 years) and marks
+  what nobody has decided (vault documents, admin audit logs, these requests) as **Not decided**.
+- Database: `app_admin/0014_data_protection.sql`; tests `db/admin-db/tests/data_protection.sql`,
+  `api/_tests/data-protection.test.ts`. Served as `/api/clients?module=dp`.
+
 ### Services
 
 Both sites. Every service the site depends on, whether it is answering right now, and a **Test** button
