@@ -44,6 +44,21 @@ describe("Services page", () => {
     expect(text({ ...base, results: [] })).toMatch(/Sign-in service .* Unknown — —/);
   });
 
+  it("shows deploys in their own table, with a build log link only to Vercel or Railway", () => {
+    const state: Loaded = { ...base,
+      services: [...base.services, svc("deploy_borrower_app", "Borrower app deploys"), svc("deploy_auth", "Sign-in service deploys")],
+      results: [...base.results,
+        { ...res("deploy_borrower_app", "down", "The deploy of commit 30669a5 failed."), link: "https://vercel.com/ficium-s-projects/ficium/3hpa" },
+        { ...res("deploy_auth", "attention", "Token expired."), link: "https://evil.example/railway.com/x" }] };
+    const html = renderToStaticMarkup(<ServicesView state={state} busy={null} error="" onTest={noop} onTestAll={noop} />);
+    expect(html.match(/<table/g)).toHaveLength(2);
+    expect(html).toContain("Latest deploys");
+    expect(html).toContain('href="https://vercel.com/ficium-s-projects/ficium/3hpa"');
+    expect(html).not.toContain("evil.example");
+    expect(text(state)).toMatch(/Sign-in service deploys .* Needs attention Token expired\./);
+    expect(summary([res("a", "up"), res("b", "attention")]).text).toBe("1 service needs attention");
+  });
+
   it("renders text from a result as text, never markup", () => {
     const html = renderToStaticMarkup(<ServicesView state={{ ...base, results: [res("identity", "down", "<img src=x onerror=alert(1)>")] }} busy={null} error="" onTest={noop} onTestAll={noop} />);
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");

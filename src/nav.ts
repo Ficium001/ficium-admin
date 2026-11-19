@@ -9,13 +9,13 @@ export type Group = { label: string; items: Item[] };
 export const APP_NAV: Group[] = [
   { label: "Customers", items: [{ key: "clients", label: "Borrowers" }, { key: "reviews", label: "KYC reviews" }] },
   { label: "Product", items: [{ key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }] },
-  { label: "Setup", items: [{ key: "kyc", label: "KYC settings" }, { key: "team", label: "Team" }] },
+  { label: "Setup", items: [{ key: "kyc", label: "KYC settings" }, { key: "team", label: "Team" }, { key: "credentials", label: "Keys and tokens" }] },
   { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
 ];
 
 export const PORTAL_NAV: Group[] = [
   { label: "Banks", items: [{ key: "applications", label: "Applications" }, { key: "institutions", label: "Banks" }, { key: "commission", label: "Commission" }] },
-  { label: "Setup", items: [{ key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "team", label: "Team" }] },
+  { label: "Setup", items: [{ key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "team", label: "Team" }, { key: "credentials", label: "Keys and tokens" }] },
   { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
 ];
 

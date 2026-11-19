@@ -12,6 +12,7 @@
  */
 import pg from "pg";
 import { readDrift, driftAlerts, hasDrift } from "./schema-drift.js";
+import { readCredentialAlerts, credentialLines } from "./credential-alerts.js";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
@@ -97,6 +98,8 @@ export function liveDeps(): DispatchDeps {
 
 export type Health = {
   healthy: boolean; alerts: string[];
+  /** Not yet a fault, but due soon (keys and tokens within 14 days of their date). */
+  warnings?: string[];
   outbox: { pending: number; dead: number; oldest_pending_s: number | null } | null;
   chain: { ok: boolean; mode: string; head_pos: number | null; head_hash: string | null } | null;
 };
@@ -107,13 +110,22 @@ export async function healthCheck(): Promise<Health> {
   const h = (await pool.query("select api.ops_health_check() as h")).rows[0].h as Health;
   // The dispatcher runs on the app site only, against app_admin. A failed drift read must not hide
   // the rest of the health check.
+  const alerts = [...(h.alerts ?? [])];
+  let warnings: string[] = [];
   try {
     const drift = await readDrift((sql) => pool.query(sql), "app_admin", false);
-    if (hasDrift(drift)) return { ...h, healthy: false, alerts: [...(h.alerts ?? []), ...driftAlerts(drift)] };
+    if (hasDrift(drift)) alerts.push(...driftAlerts(drift));
   } catch (e: any) {
-    return { ...h, healthy: false, alerts: [...(h.alerts ?? []), `Could not read which database changes app_admin has applied (${e?.code ?? "error"}).`] };
+    alerts.push(`Could not read which database changes app_admin has applied (${e?.code ?? "error"}).`);
   }
-  return h;
+  try {
+    const cred = credentialLines(await readCredentialAlerts((sql) => pool.query(sql), false));
+    alerts.push(...cred.alerts);
+    warnings = cred.warnings;
+  } catch (e: any) {
+    alerts.push(`Could not read the register of keys and tokens (${e?.code ?? "error"}).`);
+  }
+  return { ...h, healthy: h.healthy && alerts.length === (h.alerts ?? []).length, alerts, warnings };
 }
 
 /** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */

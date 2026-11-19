@@ -52,6 +52,7 @@ export function makeHandler(deps: Deps) {
         pending: health.outbox?.pending ?? null, dead: health.outbox?.dead ?? null,
       }));
       if (!health.healthy) console.error("ALERT ops health", JSON.stringify(health.alerts));
+      if (health.warnings?.length) console.warn("ALERT due soon", JSON.stringify(health.warnings));
     } catch (e: any) {
       console.error("ALERT ops health check failed", e?.code, e?.message);
     }

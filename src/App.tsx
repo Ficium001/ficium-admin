@@ -13,6 +13,7 @@ import CommissionPage from "./commission/CommissionPage";
 import ReleasesPage from "./releases/ReleasesPage";
 import ApiTrafficPage from "./traffic/ApiTrafficPage";
 import ServicesPage from "./services/ServicesPage";
+import CredentialsPage from "./credentials/CredentialsPage";
 import Gate from "./auth/Gate";
 import ResetPassword from "./auth/ResetPassword";
 import { SITE, SITE_NAME } from "./site";
@@ -50,6 +51,7 @@ function Admin() {
         : section === "offers" ? <OffersPage />
         : section === "releases" ? <ReleasesPage />
         : section === "services" ? <ServicesPage />
+        : section === "credentials" ? <CredentialsPage />
         : section === "traffic" ? <ApiTrafficPage />
         : section === "team" ? <TeamPage />
         : section === "reviews" ? <ReviewsPage />

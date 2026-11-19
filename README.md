@@ -92,6 +92,8 @@ per service (`api/_lib/services.ts`, served as `/api/audit?module=services`: the
 | Borrower app | Portal API | `GET /api/keepalive` (also App DB and missing migrations) / `GET /health` |
 | Channel to the borrower app | Channel to the portal | the existing signed read (`op=admin-app` stats / query `traffic.overview`) |
 | Delivery of changes | — | outbox backlog and dead letters (`api.ops_health_view`, needs `audit.read`) |
+| Keys and tokens | Keys and tokens | none past its date or due within 14 days (`api.credential_alerts()`) |
+| Latest deploys (3) | Latest deploys (4) | GitHub commit status of `main` (see below) |
 
 - **No address ever comes from the browser.** The page sends a service key; the server looks the test up
   in a fixed registry and refuses any key the site does not list. This is what stops the button from being
@@ -103,6 +105,47 @@ per service (`api/_lib/services.ts`, served as `/api/audit?module=services`: the
 - The same service is not tested twice within 3 seconds (per instance, best effort).
 - The portal API's `/health` does not touch its database; the channel test does. Each row says what its test
   proves and what it does not.
+
+### Keys and tokens
+
+Both sites, under **Setup**. A register of every key and token the site depends on (the app site: itself,
+the borrower app and the mobile release pipeline; the portal site: itself, the portal API and the bank
+portal; both: the sign-in service and the deploy status token). Each entry says what it is for, where it
+is kept, who owns it, and when it must be replaced: its expiry date, or the last rotation plus the
+rotation period, whichever is first. Served as `/api/audit?module=credentials` (`api/_lib/credentials.ts`).
+
+- **Names, places and dates only.** The values stay in Doppler, Railway or GitHub secrets. Anything that
+  looks like a secret value (known key prefixes, a private key, a JWT, a connection string with a password,
+  a 40+ character key-like run) is refused by the API and again by the database, and request bodies are
+  never logged.
+- 14 days before a date: amber on Services ("Keys and tokens" row) and on the Audit health banner. After
+  it: red, and on the app site the hourly dispatcher logs `ALERT ops health`. Due-soon entries are logged
+  as `ALERT due soon`.
+- Entries with no date at all show "No date recorded" and keep the Services row amber: no warning can be
+  given for a key nobody dated.
+- `credential.view` (all roles) / `credential.manage` (super admin, operations). One admin is enough, with
+  a reason; every change is audited. An entry describes a system, it does not change one.
+- Database: `app_admin/0013_credentials.sql`, `portal_admin/0012_credentials.sql`, seeded with every key
+  the code reads. Tests: `db/admin-db/tests/credentials.sql` (run with `-v db=app_admin` or `portal_admin`),
+  `api/_tests/credentials.test.ts`.
+
+### Latest deploys
+
+Services also shows, per project, whether the newest commit on `main` reached production, read from the
+commit statuses Vercel and Railway post to GitHub. A failed deploy is "Failed" with a link to the build log
+(only ever a vercel.com or railway.com link); production keeps running the last good deploy.
+
+| App site | Portal site |
+|---|---|
+| Borrower app (`ficium`, Vercel) | Bank portal (`ficium-portal`, Vercel) |
+| This admin site (`ficium-admin`, Vercel `ficium-admin`) | Portal API (`ficium-portal-api`, Railway) |
+| Sign-in service (`ficium-auth`, Railway) | This admin site (`ficium-admin`, Vercel `ficium-portal-admin`) |
+| | Sign-in service (`ficium-auth`, Railway) |
+
+Needs `GITHUB_STATUS_TOKEN` on both admin projects: a **fine-grained** token, owner Ficium001, only the
+repositories above, permission **Commit statuses: read** and nothing else. Record its expiry under Keys
+and tokens. Without it the rows say "Not set up"; when it expires they say so, not "Failed". Vercel API
+tokens are deliberately not used: they cannot be made read-only.
 
 ### Database changes merged but not applied
 

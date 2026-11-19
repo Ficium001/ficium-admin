@@ -25,13 +25,17 @@ import { portalApi, bearer, PortalApiError, type PortalCall } from "./portal-api
 import { currentSite, type Site } from "./site.js";
 import { appReleases, type AppReleases } from "./app-releases.js";
 import { readDrift, driftAlerts, hasDrift, dbFor } from "./schema-drift.js";
+import { readCredentialAlerts, names } from "./credential-alerts.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
 type Env = Record<string, string | undefined>;
 
-/** up: answering. slow: answering, but past SLOW_MS. down: refused, failed or answered wrongly. */
-export type Status = "up" | "slow" | "down" | "not_configured" | "unknown";
+/**
+ * up: answering. slow: answering, but past SLOW_MS. down: refused, failed or answered wrongly.
+ * attention: working, but something needs doing soon (a key due for renewal, a check that cannot see).
+ */
+export type Status = "up" | "slow" | "attention" | "down" | "not_configured" | "unknown";
 
 /** One service, as the page describes it. Fixed per site; never built from a request. */
 export type Service = {
@@ -54,6 +58,8 @@ export type Result = {
   ms: number | null;
   /** One line a person can act on. Never a raw stack or a URL with credentials. */
   detail: string;
+  /** Where to look next (a build log), only ever on a host this file allows. */
+  link?: string;
   checked_at: string;
 };
 
@@ -91,6 +97,22 @@ const APP_SERVICES: Service[] = [
     what: "Approved changes wait here until the borrower app has taken them.",
     proves: "Nothing is stuck: no failed deliveries, and nothing waiting too long.",
     blind_to: "Whether the next delivery will succeed." },
+  { key: "credentials", label: "Keys and tokens", runs_on: "Admin database (app_admin)",
+    what: "The register of every key and token this site and the borrower app depend on, and when each must be replaced.",
+    proves: "None has passed its date, and none is due within 14 days.",
+    blind_to: "Keys missing from the register, and whether a recorded date is right: the register is only as good as what is entered." },
+  { key: "deploy_borrower_app", label: "Borrower app deploys", runs_on: "Vercel, from GitHub ficium",
+    what: "Builds and publishes the borrower app and website from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
+  { key: "deploy_app_admin", label: "This admin site's deploys", runs_on: "Vercel, from GitHub ficium-admin",
+    what: "Builds and publishes this admin site from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
+  { key: "deploy_auth", label: "Sign-in service deploys", runs_on: "Railway, from GitHub ficium-auth",
+    what: "Builds and publishes the sign-in service from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
 ];
 
 const PORTAL_SERVICES: Service[] = [
@@ -118,6 +140,26 @@ const PORTAL_SERVICES: Service[] = [
     what: "The signed connection this site uses to read portal data and send commands.",
     proves: "The signing key and your own sign-in are accepted, and the portal database answered.",
     blind_to: "Whether a command already sent was carried out; the Audit page shows that." },
+  { key: "credentials", label: "Keys and tokens", runs_on: "Admin database (portal_admin)",
+    what: "The register of every key and token this site and the bank portal depend on, and when each must be replaced.",
+    proves: "None has passed its date, and none is due within 14 days.",
+    blind_to: "Keys missing from the register, and whether a recorded date is right: the register is only as good as what is entered." },
+  { key: "deploy_portal", label: "Bank portal deploys", runs_on: "Vercel, from GitHub ficium-portal",
+    what: "Builds and publishes the bank portal website from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
+  { key: "deploy_portal_api", label: "Portal API deploys", runs_on: "Railway, from GitHub ficium-portal-api",
+    what: "Builds and publishes the portal API from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
+  { key: "deploy_portal_admin", label: "This admin site's deploys", runs_on: "Vercel, from GitHub ficium-admin",
+    what: "Builds and publishes this admin site from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
+  { key: "deploy_auth", label: "Sign-in service deploys", runs_on: "Railway, from GitHub ficium-auth",
+    what: "Builds and publishes the sign-in service from main.",
+    proves: "The latest commit on main was built and published to production.",
+    blind_to: "Why a build failed (the build log says), and whether the published version works (the rows above test that)." },
 ];
 
 export const servicesFor = (site: Site): Service[] => (site === "portal" ? PORTAL_SERVICES : APP_SERVICES);
@@ -150,6 +192,96 @@ async function getJson(url: string, f: typeof fetch, headers: Record<string, str
   }
 }
 
+/**
+ * Production deploys, read from the commit statuses Vercel and Railway post on GitHub for the
+ * latest commit on main. Fixed here: the browser never names a repository.
+ *
+ * GITHUB_STATUS_TOKEN must be a fine-grained token, owner Ficium001, limited to these repositories,
+ * with "Commit statuses: read" and nothing else. Vercel tokens are not used: they cannot be made
+ * read-only, so a leaked one could change or delete deployments.
+ */
+export const GITHUB_OWNER = "Ficium001";
+export type DeployTarget = { repo: string; host: "Vercel" | "Railway"; context: RegExp };
+export const DEPLOYS: Record<string, DeployTarget> = {
+  deploy_borrower_app: { repo: "ficium", host: "Vercel", context: /^Vercel$/ },
+  deploy_app_admin: { repo: "ficium-admin", host: "Vercel", context: /^Vercel\s+[–-]\s+ficium-admin$/ },
+  deploy_portal: { repo: "ficium-portal", host: "Vercel", context: /^Vercel$/ },
+  deploy_portal_admin: { repo: "ficium-admin", host: "Vercel", context: /^Vercel\s+[–-]\s+ficium-portal-admin$/ },
+  deploy_portal_api: { repo: "ficium-portal-api", host: "Railway", context: /\s-\s+ficium-portal-api$/ },
+  deploy_auth: { repo: "ficium-auth", host: "Railway", context: /\s-\s+ficium-auth$/ },
+};
+/** A pending deploy older than this is stuck, not running. */
+export const DEPLOY_STUCK_MS = 30 * 60_000;
+const LOG_HOSTS = /^(vercel\.com|railway\.com|railway\.app)$/;
+
+/** The build log link, only when it points at Vercel or Railway over https. */
+export function logLink(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && LOG_HOSTS.test(u.hostname) && !u.username && !u.password ? u.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Indian/Mauritius" });
+const when = (iso: unknown) => (typeof iso === "string" && !Number.isNaN(Date.parse(iso)) ? WHEN.format(new Date(iso)) : "an unknown time");
+
+/** ms is always null: GitHub's round trip says nothing about the deployed service. */
+export async function deployProbe(t: DeployTarget, c: ProbeContext, at: number = Date.now()): Promise<Pick<Result, "status" | "ms" | "detail" | "link">> {
+  const token = c.env.GITHUB_STATUS_TOKEN?.trim();
+  if (!token) {
+    return { status: "not_configured", ms: null,
+      detail: "Add GITHUB_STATUS_TOKEN (read-only commit statuses) to this site to see deploys." };
+  }
+  const r = await getJson(`https://api.github.com/repos/${GITHUB_OWNER}/${t.repo}/commits/main/status`, c.fetchImpl, {
+    Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ficium-admin",
+  });
+  if (!r.ok) {
+    if (r.status === 0) return { status: "unknown", ms: null, detail: "GitHub could not be reached, so the last deploy is unknown." };
+    if (r.status === 401) {
+      return { status: "attention", ms: null,
+        detail: "GitHub refused GITHUB_STATUS_TOKEN: it has expired or was revoked. Make a new one and update Keys and tokens." };
+    }
+    if (r.status === 403 || r.status === 429) {
+      if (/rate limit/i.test(String(r.body?.message ?? ""))) return { status: "unknown", ms: null, detail: "GitHub's rate limit was reached. Test again in a few minutes." };
+      return { status: "attention", ms: null, detail: `GITHUB_STATUS_TOKEN cannot read ${GITHUB_OWNER}/${t.repo}. Add this repository to the token.` };
+    }
+    if (r.status === 404 || r.status === 422) {
+      return { status: "attention", ms: null, detail: `GITHUB_STATUS_TOKEN cannot see ${GITHUB_OWNER}/${t.repo} or its main branch. Add this repository to the token.` };
+    }
+    return { status: "unknown", ms: null, detail: `GitHub answered ${r.status}.` };
+  }
+  const sha = typeof r.body?.sha === "string" ? r.body.sha.slice(0, 7) : "unknown";
+  const all = Array.isArray(r.body?.statuses) ? r.body.statuses : [];
+  // Newest first, as GitHub returns them; the first match is the current state for that context.
+  const s = all.find((x: any) => typeof x?.context === "string" && t.context.test(x.context));
+  if (!s) {
+    return { status: "unknown", ms: null,
+      detail: `The latest commit on main (${sha}) has no ${t.host} deploy status yet. If it stays like this, check that ${t.host} is connected to this repository.` };
+  }
+  const link = logLink(s.target_url);
+  const desc = String(s.description ?? "");
+  if (s.state === "success") {
+    if (/ignored|skipped|canceled|cancelled/i.test(desc)) {
+      return { status: "up", ms: null, link, detail: `The latest commit (${sha}) was not deployed; production runs an earlier successful deploy.` };
+    }
+    return { status: "up", ms: null, link, detail: `Commit ${sha} is live, deployed ${when(s.updated_at)}.` };
+  }
+  if (s.state === "pending") {
+    const age = at - Date.parse(String(s.created_at ?? s.updated_at ?? ""));
+    if (Number.isFinite(age) && age > DEPLOY_STUCK_MS) {
+      return { status: "attention", ms: null, link,
+        detail: `The deploy of commit ${sha} has been running for ${Math.floor(age / 60_000)} minutes. Production runs the previous deploy until it finishes.` };
+    }
+    return { status: "up", ms: null, link, detail: `Deploying commit ${sha} now. Production runs the previous deploy until it finishes.` };
+  }
+  // failure or error: the platform keeps serving the last successful deploy.
+  return { status: "down", ms: null, link,
+    detail: `The deploy of commit ${sha} failed (${when(s.updated_at)}). Production still runs the last successful deploy, so nothing merged since is live. The reason is in the ${t.host} build log.` };
+}
+
 export type ProbeContext = {
   env: Env;
   fetchImpl: typeof fetch;
@@ -166,7 +298,7 @@ export type ProbeContext = {
 };
 
 /** One probe per service key. Read-only by construction: there is no entry here that writes. */
-export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "status" | "ms" | "detail">>> = {
+export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "status" | "ms" | "detail" | "link">>> = {
   admin_api: async (c) => {
     const where = c.env.VERCEL_ENV ? `${c.env.VERCEL_ENV} deployment` : "this deployment";
     return { status: "up", ms: null, detail: `Answering now, from the ${where}.` };
@@ -286,6 +418,23 @@ export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "s
     if (pending > 0) return { status: "up", ms: null, detail: `${pending} change${pending === 1 ? "" : "s"} waiting, none overdue.` };
     return { status: "up", ms: null, detail: "Nothing waiting." };
   },
+
+  credentials: async (c) => {
+    const a = await readCredentialAlerts(c.q, true);
+    if (!a) return { status: "unknown", ms: null, detail: "Not set up yet: the register's database change has not been applied (see Database changes)." };
+    if (a.expired.length) {
+      return { status: "down", ms: null,
+        detail: `${a.expired.length} expired: ${names(a.expired)}. Replace ${a.expired.length === 1 ? "it" : "them"}, then update Keys and tokens.` };
+    }
+    if (a.due_soon.length) return { status: "attention", ms: null, detail: `Due within 14 days: ${names(a.due_soon)}.` };
+    if (a.no_date > 0) {
+      return { status: "attention", ms: null,
+        detail: `No expiry or rotation date recorded for ${a.no_date} of ${a.tracked}. Add them on Keys and tokens so this page can warn in time.` };
+    }
+    return { status: "up", ms: null, detail: `${a.tracked} tracked, none due in the next 14 days.` };
+  },
+
+  ...Object.fromEntries(Object.entries(DEPLOYS).map(([key, t]) => [key, (c: ProbeContext) => deployProbe(t, c)])),
 };
 
 /**

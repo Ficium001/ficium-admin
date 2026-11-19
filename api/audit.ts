@@ -10,9 +10,10 @@
  * trail, read through portal-api after the admin DB confirms audit.read.
  * Read-only.
  *
- * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts) and
- * /api/audit?module=services (service health, both sites, _lib/services.ts): the Vercel plan allows
- * 12 function files and this repo has 12. The handlers share nothing but the file.
+ * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts),
+ * /api/audit?module=services (service health, both sites, _lib/services.ts) and
+ * /api/audit?module=credentials (keys and tokens, both sites, _lib/credentials.ts): the Vercel plan
+ * allows 12 function files and this repo has 12. The handlers share nothing but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin-db.js";
@@ -21,6 +22,8 @@ import { currentSite } from "./_lib/site.js";
 import { makeHandler as makeTrafficHandler, live as liveTraffic } from "./_lib/api-traffic.js";
 import { makeHandler as makeServicesHandler, live as liveServices } from "./_lib/services.js";
 import { readDrift, driftAlerts, hasDrift, dbFor } from "./_lib/schema-drift.js";
+import { readCredentialAlerts, credentialLines } from "./_lib/credential-alerts.js";
+import { makeHandler as makeCredentialsHandler, live as liveCredentials } from "./_lib/credentials.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -57,8 +60,11 @@ export function makeHandler(deps: Deps) {
           const h = (await q("select api.ops_health_view() as v")).rows[0]?.v ?? null;
           // Database changes merged but not applied are an ops problem like any other.
           const drift = await readDrift(q, dbFor(deps.site()), true);
-          if (!h || !hasDrift(drift)) return h;
-          return { ...h, healthy: false, alerts: [...(h.alerts ?? []), ...driftAlerts(drift)] };
+          // So are keys and tokens past their date (red) or due within 14 days (amber).
+          const cred = credentialLines(await readCredentialAlerts(q, true));
+          if (!h) return h;
+          const alerts = [...(h.alerts ?? []), ...(hasDrift(drift) ? driftAlerts(drift) : []), ...cred.alerts];
+          return { ...h, healthy: h.healthy && alerts.length === (h.alerts ?? []).length, alerts, ...(cred.warnings.length ? { warnings: cred.warnings } : {}) };
         });
         return res.status(200).json({ source, health });
       }
@@ -90,16 +96,20 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-/** One function file, three modules: `?module=traffic`, `?module=services`, anything else is the audit log. */
+/** One function file, four modules: `?module=traffic|services|credentials`, anything else is the audit log. */
 export function route(
   audit: (req: Req, res: Res) => unknown,
   traffic: (req: Req, res: Res) => unknown,
   services: (req: Req, res: Res) => unknown = audit,
+  credentials: (req: Req, res: Res) => unknown = audit,
 ) {
   return (req: Req, res: Res) => {
     const raw = req.query?.module;
     const m = Array.isArray(raw) ? raw[0] : raw;
-    return m === "traffic" ? traffic(req, res) : m === "services" ? services(req, res) : audit(req, res);
+    return m === "traffic" ? traffic(req, res)
+      : m === "services" ? services(req, res)
+      : m === "credentials" ? credentials(req, res)
+      : audit(req, res);
   };
 }
 
@@ -107,4 +117,5 @@ export default route(
   makeHandler(live),
   (req, res) => makeTrafficHandler(liveTraffic())(req as any, res),
   (req, res) => makeServicesHandler(liveServices())(req as any, res),
+  (req, res) => makeCredentialsHandler(liveCredentials())(req as any, res),
 );
