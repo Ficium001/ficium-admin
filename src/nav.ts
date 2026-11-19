@@ -7,7 +7,7 @@ export type Item = { key: string; label: string };
 export type Group = { label: string; items: Item[] };
 
 export const APP_NAV: Group[] = [
-  { label: "Customers", items: [{ key: "clients", label: "Borrowers" }, { key: "reviews", label: "KYC reviews" }] },
+  { label: "Customers", items: [{ key: "clients", label: "Borrowers" }, { key: "reviews", label: "KYC reviews" }, { key: "privacy", label: "Data protection" }] },
   { label: "Product", items: [{ key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }] },
   { label: "Setup", items: [{ key: "kyc", label: "KYC settings" }, { key: "team", label: "Team" }, { key: "credentials", label: "Keys and tokens" }] },
   { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },

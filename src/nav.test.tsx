@@ -8,7 +8,7 @@ const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "
 describe("admin menu", () => {
   it("groups each site's pages into modules", () => {
     expect(APP_NAV.map((g) => `${g.label}: ${g.items.map((i) => i.label).join(", ")}`)).toEqual([
-      "Customers: Borrowers, KYC reviews",
+      "Customers: Borrowers, KYC reviews, Data protection",
       "Product: Offers, App releases",
       "Setup: KYC settings, Team, Keys and tokens",
       "Monitoring: Services, API traffic, Audit",
@@ -20,7 +20,7 @@ describe("admin menu", () => {
     const app = itemsOf(APP_NAV).map((i) => i.key), portal = itemsOf(PORTAL_NAV).map((i) => i.key);
     expect(new Set(app).size).toBe(app.length);
     expect(new Set(portal).size).toBe(portal.length);
-    expect([...app].sort()).toEqual(["audit", "clients", "credentials", "kyc", "offers", "releases", "reviews", "services", "team", "traffic"]);
+    expect([...app].sort()).toEqual(["audit", "clients", "credentials", "kyc", "offers", "privacy", "releases", "reviews", "services", "team", "traffic"]);
     expect([...portal].sort()).toEqual(["applications", "audit", "commission", "compliance", "credentials", "institutions", "roles", "services", "team", "traffic"]);
   });
 
@@ -41,7 +41,7 @@ describe("admin menu", () => {
     expect(html.match(/hidden=""/g)).toHaveLength(3);
     expect(html).toContain('<a href="#services" aria-current="page">Services</a>');
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-    expect(text(html)).toContain("Customers ▸ Borrowers KYC reviews Product ▸ Offers App releases Setup ▸ KYC settings Team Keys and tokens Monitoring ▾ Services API traffic Audit");
+    expect(text(html)).toContain("Customers ▸ Borrowers KYC reviews Data protection Product ▸ Offers App releases Setup ▸ KYC settings Team Keys and tokens Monitoring ▾ Services API traffic Audit");
   });
 
   it("on a phone, the Menu button names where you are and starts closed", () => {

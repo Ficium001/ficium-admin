@@ -13,6 +13,7 @@ import CommissionPage from "./commission/CommissionPage";
 import ReleasesPage from "./releases/ReleasesPage";
 import ApiTrafficPage from "./traffic/ApiTrafficPage";
 import ServicesPage from "./services/ServicesPage";
+import DataProtectionPage from "./data-protection/DataProtectionPage";
 import CredentialsPage from "./credentials/CredentialsPage";
 import Gate from "./auth/Gate";
 import ResetPassword from "./auth/ResetPassword";
@@ -51,6 +52,7 @@ function Admin() {
         : section === "offers" ? <OffersPage />
         : section === "releases" ? <ReleasesPage />
         : section === "services" ? <ServicesPage />
+        : section === "privacy" ? <DataProtectionPage />
         : section === "credentials" ? <CredentialsPage />
         : section === "traffic" ? <ApiTrafficPage />
         : section === "team" ? <TeamPage />
