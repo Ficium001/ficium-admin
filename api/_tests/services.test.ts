@@ -4,6 +4,7 @@ import { route } from "../audit.js";
 import { PortalApiError } from "../_lib/portal-api.js";
 import { AuthError } from "../_lib/access.js";
 import { res, fakeAdmin, staffOk, KJ } from "./admin-harness.js";
+import { EXPECTED_MIGRATIONS } from "../_lib/expected-migrations.js";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const ENV = {
@@ -37,7 +38,13 @@ function ctx(over: Partial<ProbeContext> = {}, routes: Record<string, () => Resp
   const sql: string[] = [];
   const c: ProbeContext = {
     env: ENV, fetchImpl: f, actorToken: "staff-token",
-    q: async (s) => { sql.push(s); return { rows: s.includes("ops_health_view") ? [{ v: { outbox: { pending: 0, dead: 0, oldest_pending_s: null } } }] : [{ ok: 1 }] }; },
+    q: async (s) => {
+      sql.push(s);
+      if (s.includes("ops_health_view")) return { rows: [{ v: { outbox: { pending: 0, dead: 0, oldest_pending_s: null } } }] };
+      if (s.includes("schema_status")) return { rows: [{ v: EXPECTED_MIGRATIONS.app_admin }] };
+      return { rows: [{ ok: 1 }] };
+    },
+    site: "app",
     app: { usage: vi.fn(async () => ({ generated_at: "", policy: [], versions: [], errors: [] })) },
     portal: vi.fn(async () => ({})) as any,
     ...over,
@@ -50,8 +57,8 @@ beforeEach(() => resetProbeWindow());
 describe("service registry", () => {
   it("lists each site's own services, and every one has a probe", () => {
     const app = servicesFor("app").map((s) => s.key), portal = servicesFor("portal").map((s) => s.key);
-    expect(app).toEqual(["admin_api", "admin_db", "identity", "borrower_app", "app_channel", "delivery"]);
-    expect(portal).toEqual(["admin_api", "admin_db", "identity", "portal_api", "portal_channel"]);
+    expect(app).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "borrower_app", "app_channel", "delivery"]);
+    expect(portal).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel"]);
     for (const k of [...app, ...portal]) expect(PROBES[k]).toBeTypeOf("function");
     for (const s of [...servicesFor("app"), ...servicesFor("portal")]) {
       expect(s.proves.length).toBeGreaterThan(10);
@@ -141,6 +148,16 @@ describe("probes", () => {
     expect(sql).toEqual(["savepoint probe_delivery", "select api.ops_health_view() as v", "rollback to savepoint probe_delivery"]);
   });
 
+  it("database changes: broken when one is not applied, naming it; and when the check is not installed", async () => {
+    const applied = EXPECTED_MIGRATIONS.app_admin.slice(0, -2);
+    const missing = await runProbe("admin_schema", ctx({ q: async (s) => ({ rows: s.includes("schema_status") ? [{ v: applied }] : [] }) }).c);
+    expect(missing.status).toBe("down");
+    expect(missing.detail).toContain("0011_api_traffic, 0012_schema_status");
+    resetProbeWindow();
+    const absent = await runProbe("admin_schema", ctx({ site: "portal", q: async (s) => { if (s.includes("schema_status")) throw { code: "42883" }; return { rows: [] }; } }).c);
+    expect([absent.status, absent.detail]).toEqual(["down", expect.stringContaining("apply 0011_schema_status")]);
+  });
+
   it("marks a slow answer as slow", async () => {
     let t = 0;
     const spy = vi.spyOn(Date, "now").mockImplementation(() => (t += 2500));
@@ -179,11 +196,12 @@ describe("probes", () => {
 });
 
 function setup(site: "app" | "portal" = "app", fail?: { match: string; err: unknown }) {
-  const db = fakeAdmin({ "api.traffic_view": { v: {} }, "select 1": { ok: 1 }, "ops_health_view": { v: { outbox: { pending: 0, dead: 0 } } } }, fail);
+  const db = fakeAdmin({ "api.traffic_view": { v: {} }, "select 1": { ok: 1 }, "ops_health_view": { v: { outbox: { pending: 0, dead: 0 } } },
+    "api.schema_status": { v: EXPECTED_MIGRATIONS[site === "portal" ? "portal_admin" : "app_admin"] } }, fail);
   const { f, urls } = net(HEALTHY);
   const deps: Deps = {
     requireStaff: staffOk(), withAdmin: db.withAdmin, site: () => site,
-    context: (q, actorToken) => ({ env: ENV, fetchImpl: f, q, actorToken,
+    context: (q, actorToken) => ({ env: ENV, fetchImpl: f, q, actorToken, site,
       app: { usage: vi.fn(async () => ({ generated_at: "", policy: [], versions: [], errors: [] })) }, portal: vi.fn(async () => ({})) as any }),
   };
   return { db, urls, handler: makeHandler(deps) };
@@ -197,7 +215,7 @@ describe("service health endpoint", () => {
     expect(r.code).toBe(200);
     expect(db.calls[0]!.sql).toContain("api.traffic_view");
     expect(db.sessions[0]!.staff).toEqual(KJ);
-    expect(r.body.results.map((x: any) => x.key)).toEqual(["admin_api", "admin_db", "identity", "portal_api", "portal_channel"]);
+    expect(r.body.results.map((x: any) => x.key)).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel"]);
     expect(r.body.results.every((x: any) => x.status === "up")).toBe(true);
     expect(r.headers["Cache-Control"]).toBe("no-store");
   });

@@ -24,6 +24,7 @@ import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./admin-db.j
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./portal-api.js";
 import { currentSite, type Site } from "./site.js";
 import { appReleases, type AppReleases } from "./app-releases.js";
+import { readDrift, driftAlerts, hasDrift, dbFor } from "./schema-drift.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -70,6 +71,10 @@ const APP_SERVICES: Service[] = [
     what: "Holds this site's own records: settings, approvals, the audit log.",
     proves: "It is reachable and answering queries, with the round trip from this deployment.",
     blind_to: "Whether any particular record is correct." },
+  { key: "admin_schema", label: "Database changes", runs_on: "Admin database (app_admin)",
+    what: "The database changes (migrations) this site's code was built with.",
+    proves: "Every one has been applied, and none was edited afterwards.",
+    blind_to: "The product's own databases: the Borrower app row checks the borrower app." },
   { key: "identity", label: "Sign-in service", runs_on: "Railway (ficium-auth)",
     what: "Signs in Ficium staff and bank users, and issues the tokens every site checks.",
     proves: "It is serving its public keys, so tokens can still be verified.",
@@ -97,6 +102,10 @@ const PORTAL_SERVICES: Service[] = [
     what: "Holds this site's own records: banks, compliance, commission, the audit log.",
     proves: "It is reachable and answering queries, with the round trip from this deployment.",
     blind_to: "Whether any particular record is correct." },
+  { key: "admin_schema", label: "Database changes", runs_on: "Admin database (portal_admin)",
+    what: "The database changes (migrations) this site's code was built with.",
+    proves: "Every one has been applied, and none was edited afterwards.",
+    blind_to: "The product's own databases: the portal database has no such check yet." },
   { key: "identity", label: "Sign-in service", runs_on: "Railway (ficium-auth)",
     what: "Signs in Ficium staff and bank users, and issues the tokens every site checks.",
     proves: "It is serving its public keys, so tokens can still be verified.",
@@ -152,6 +161,8 @@ export type ProbeContext = {
   portal: PortalCall | null;
   /** The caller's own token, which the portal channel requires. */
   actorToken: string;
+  /** Which admin database this deployment uses. */
+  site: Site;
 };
 
 /** One probe per service key. Read-only by construction: there is no entry here that writes. */
@@ -178,6 +189,12 @@ export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "s
     const keys = Array.isArray(r.body?.keys) ? r.body.keys.length : 0;
     if (keys === 0) return { status: "down", ms: r.ms, detail: "Answered, but served no signing keys, so tokens cannot be verified." };
     return rate(r.ms, `Serving ${keys} signing key${keys === 1 ? "" : "s"}.`);
+  },
+
+  admin_schema: async (c) => {
+    const d = await readDrift(c.q, dbFor(c.site), true);
+    if (!hasDrift(d)) return { status: "up", ms: null, detail: "Every database change this deployment expects is applied." };
+    return { status: "down", ms: null, detail: driftAlerts(d).join(" ") };
   },
 
   borrower_app: async (c) => {
@@ -317,6 +334,7 @@ export const live = (): Deps => ({
     app: currentSite() === "app" ? appReleases() : null,
     portal: currentSite() === "portal" ? portalApi() : null,
     actorToken,
+    site: currentSite(),
   }),
 });
 

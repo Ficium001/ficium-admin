@@ -11,6 +11,7 @@
  * (the PEM from Supabase -> Database settings -> SSL) to verify it.
  */
 import pg from "pg";
+import { readDrift, driftAlerts, hasDrift } from "./schema-drift.js";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
@@ -102,8 +103,17 @@ export type Health = {
 
 /** Verifies the audit chain and reads the outbox state (api.ops_health_check, worker role). */
 export async function healthCheck(): Promise<Health> {
-  const r = await neonPool().query("select api.ops_health_check() as h");
-  return r.rows[0].h as Health;
+  const pool = neonPool();
+  const h = (await pool.query("select api.ops_health_check() as h")).rows[0].h as Health;
+  // The dispatcher runs on the app site only, against app_admin. A failed drift read must not hide
+  // the rest of the health check.
+  try {
+    const drift = await readDrift((sql) => pool.query(sql), "app_admin", false);
+    if (hasDrift(drift)) return { ...h, healthy: false, alerts: [...(h.alerts ?? []), ...driftAlerts(drift)] };
+  } catch (e: any) {
+    return { ...h, healthy: false, alerts: [...(h.alerts ?? []), `Could not read which database changes app_admin has applied (${e?.code ?? "error"}).`] };
+  }
+  return h;
 }
 
 /** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */
