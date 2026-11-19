@@ -313,3 +313,11 @@ a:hover { color: var(--ficium-press); }
   .table tbody th { min-width: 200px; }
   .table td { min-width: 96px; }
 }
+
+/* Keys and tokens */
+.table code { font-size: 0.78rem; color: var(--slate); overflow-wrap: anywhere; }
+.fld .ghost.inline { justify-self: start; min-height: 0; padding: 4px 10px; font-size: 0.82rem; margin-top: 4px; }
+details.history > summary { cursor: pointer; font-family: var(--display); font-weight: 600; }
+details.history ul { margin: 10px 0 0; padding-left: 18px; color: var(--slate); }
+
+.table a { color: var(--ficium); text-underline-offset: 2px; }

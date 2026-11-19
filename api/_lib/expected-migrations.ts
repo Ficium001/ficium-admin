@@ -17,6 +17,7 @@ export const EXPECTED_MIGRATIONS: { app_admin: Expected[]; portal_admin: Expecte
     { version: "0010_app_release", checksum: "47ce6c93824f7e755276b3e0dd985d65b747e67047aaf780fcbc3aa49b2245c6" },
     { version: "0011_api_traffic", checksum: "707169ea43b1b01877cf211d2f126acd939b2ade04e5bdc10d4e65430f027a1d" },
     { version: "0012_schema_status", checksum: "78a90b85e3e4badf188afed51acac029b8e89faaa94571636b5a0b06185ed666" },
+    { version: "0013_credentials", checksum: "e9bab61f59d5a50fca6fe2059af388648e20a3f47a21bfd50e5f273291f65a0a" },
   ],
   portal_admin: [
     { version: "0001_platform", checksum: "6aae4ce98bea2caa57476da4dcb6d7075dafd100bb68ff0cb09b5a5546c8c384" },
@@ -30,5 +31,6 @@ export const EXPECTED_MIGRATIONS: { app_admin: Expected[]; portal_admin: Expecte
     { version: "0009_show_the_change", checksum: "0c54ffbb3b7c87773172d4b9d812bae48aa9895887246d1f41ec62f72cbe15d0" },
     { version: "0010_api_traffic", checksum: "dee56754e8a7f722ca14f2aac60c3bd860fa87930504b431e7d889bd5dfff95d" },
     { version: "0011_schema_status", checksum: "2d110dcb2c75d7e835bce124131b560c7296f70ce34b8c9c2aaf8ccfbf8de24a" },
+    { version: "0012_credentials", checksum: "72a38baf9f6ca96ec053f8ffefa987b3c7205c616bec1a32090fcbe886e9bc3d" },
   ],
 };

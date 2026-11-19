@@ -18,7 +18,7 @@ async function fetchEvents(source: Source, before: string, prefix: string) {
   return b.events as (AdminEvent | PortalEvent)[];
 }
 
-type Health = { healthy: boolean; alerts: string[]; at: string;
+type Health = { healthy: boolean; alerts: string[]; warnings?: string[]; at: string;
   outbox: { pending: number; dead: number; oldest_pending_s: number | null; last_dispatched_at: string | null } | null;
   chain: { ok: boolean; mode: string; checked: number; head_pos: number | null; head_hash: string | null; checked_at: string } | null };
 
@@ -34,12 +34,16 @@ function HealthBanner() {
   }, []);
   if (err) return <section className="status warn" role="status"><p><strong>System health is unavailable.</strong> {err}</p></section>;
   if (!h) return null;
+  const warnings = h.warnings ?? [];
+  // Red for a fault, amber for something due soon (a key or token within 14 days of its date).
+  const tone = !h.healthy ? "danger" : warnings.length ? "warn" : "ok";
   return (
-    <section className={`status ${h.healthy ? "ok" : "danger"}`} role={h.healthy ? "status" : "alert"}>
+    <section className={`status ${tone}`} role={h.healthy ? "status" : "alert"}>
       {h.healthy
         ? <p><strong>Audit log verified.</strong> {h.chain ? `${h.chain.head_pos ?? 0} entries, last checked ${fmt(h.chain.checked_at)}.` : ""}
             {h.outbox ? ` Sync: ${h.outbox.pending} waiting, none failed.` : ""}</p>
         : <><p><strong>Needs attention.</strong></p><ul>{h.alerts.map((a) => <li key={a}>{a}</li>)}</ul></>}
+      {warnings.length > 0 && <><p><strong>Due soon.</strong></p><ul>{warnings.map((w) => <li key={w}>{w}</li>)}</ul></>}
     </section>
   );
 }

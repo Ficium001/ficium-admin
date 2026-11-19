@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeHandler, runProbe, resetProbeWindow, servicesFor, originOf, PROBES, MIN_INTERVAL_MS, type Deps, type ProbeContext } from "../_lib/services.js";
+import { makeHandler, runProbe, resetProbeWindow, servicesFor, originOf, PROBES, MIN_INTERVAL_MS, DEPLOYS, deployProbe, logLink, type Deps, type ProbeContext } from "../_lib/services.js";
 import { route } from "../audit.js";
 import { PortalApiError } from "../_lib/portal-api.js";
 import { AuthError } from "../_lib/access.js";
@@ -12,7 +12,11 @@ const ENV = {
   APP_ADMIN_SYNC_URL: "https://app.example/api/internal?op=admin-sync",
   PORTAL_API_URL: "https://portal.example",
   VERCEL_ENV: "production",
+  GITHUB_STATUS_TOKEN: "status-token",
 };
+const STATUS_URL = (repo: string) => `https://api.github.com/repos/Ficium001/${repo}/commits/main/status`;
+const deployed = (context: string) => () => json(200, { sha: "4ee1264abcdef", state: "success", statuses: [
+  { context, state: "success", description: "Deployment has completed", target_url: "https://vercel.com/ficium-s-projects/x/abc", updated_at: "2026-11-19T10:00:00Z" }] });
 
 /** A fetch that answers by URL, and records every URL asked for. */
 function net(routes: Record<string, () => Response | Promise<Response>>) {
@@ -31,7 +35,15 @@ const HEALTHY = {
   "https://auth.example/.well-known/jwks.json": () => json(200, { keys: [{ kid: "a" }, { kid: "b" }] }),
   "https://app.example/api/keepalive": () => json(200, { ok: true, data: { ok: true, ms: 40 } }),
   "https://portal.example/health": () => json(200, { status: "ok", service: "ficium-portal-api", version: "1.4.0" }),
+  [STATUS_URL("ficium")]: deployed("Vercel"),
+  [STATUS_URL("ficium-portal")]: deployed("Vercel"),
+  [STATUS_URL("ficium-admin")]: () => json(200, { sha: "4ee1264abcdef", statuses: [
+    { context: "Vercel – ficium-portal-admin", state: "success", description: "Deployment has completed", updated_at: "2026-11-19T10:00:00Z" },
+    { context: "Vercel – ficium-admin", state: "success", description: "Deployment has completed", updated_at: "2026-11-19T10:00:00Z" }] }),
+  [STATUS_URL("ficium-portal-api")]: deployed("cheerful-fascination - ficium-portal-api"),
+  [STATUS_URL("ficium-auth")]: deployed("cheerful-fascination - ficium-auth"),
 };
+const CRED_OK = { today: "2026-11-19", expired: [], due_soon: [], no_date: 0, tracked: 12 };
 
 function ctx(over: Partial<ProbeContext> = {}, routes: Record<string, () => Response | Promise<Response>> = HEALTHY): { c: ProbeContext; urls: string[]; sql: string[] } {
   const { f, urls } = net(routes);
@@ -42,6 +54,7 @@ function ctx(over: Partial<ProbeContext> = {}, routes: Record<string, () => Resp
       sql.push(s);
       if (s.includes("ops_health_view")) return { rows: [{ v: { outbox: { pending: 0, dead: 0, oldest_pending_s: null } } }] };
       if (s.includes("schema_status")) return { rows: [{ v: EXPECTED_MIGRATIONS.app_admin }] };
+      if (s.includes("api.credential_alerts")) return { rows: [{ v: CRED_OK }] };
       return { rows: [{ ok: 1 }] };
     },
     site: "app",
@@ -57,8 +70,10 @@ beforeEach(() => resetProbeWindow());
 describe("service registry", () => {
   it("lists each site's own services, and every one has a probe", () => {
     const app = servicesFor("app").map((s) => s.key), portal = servicesFor("portal").map((s) => s.key);
-    expect(app).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "borrower_app", "app_channel", "delivery"]);
-    expect(portal).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel"]);
+    expect(app).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "borrower_app", "app_channel", "delivery",
+      "credentials", "deploy_borrower_app", "deploy_app_admin", "deploy_auth"]);
+    expect(portal).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel",
+      "credentials", "deploy_portal", "deploy_portal_api", "deploy_portal_admin", "deploy_auth"]);
     for (const k of [...app, ...portal]) expect(PROBES[k]).toBeTypeOf("function");
     for (const s of [...servicesFor("app"), ...servicesFor("portal")]) {
       expect(s.proves.length).toBeGreaterThan(10);
@@ -82,7 +97,84 @@ describe("probes", () => {
       const r = await runProbe(k, c);
       expect([r.key, r.status]).toEqual([k, "up"]);
     }
-    expect(urls.sort()).toEqual(Object.keys(HEALTHY).sort());
+    // Both admin sites read ficium-admin (one context each), so each URL appears at least once.
+    expect([...new Set(urls)].sort()).toEqual(Object.keys(HEALTHY).sort());
+  });
+
+  it("deploys: read only GitHub commit statuses, with the token, for a fixed repository", async () => {
+    const seen: { url: string; auth: string | null }[] = [];
+    const f = vi.fn(async (u: string | URL, init?: RequestInit) => {
+      seen.push({ url: String(u), auth: new Headers(init?.headers).get("Authorization") });
+      return HEALTHY[STATUS_URL("ficium") as keyof typeof HEALTHY]!();
+    }) as unknown as typeof fetch;
+    const r = await deployProbe(DEPLOYS.deploy_borrower_app!, ctx({ fetchImpl: f }).c);
+    expect(seen).toEqual([{ url: STATUS_URL("ficium"), auth: "Bearer status-token" }]);
+    expect([r.status, r.detail, r.link]).toEqual(["up", expect.stringMatching(/Commit 4ee1264 is live/), "https://vercel.com/ficium-s-projects/x/abc"]);
+  });
+
+  it("deploys: a failed build is broken and says production still runs the last good one", async () => {
+    const r = await deployProbe(DEPLOYS.deploy_borrower_app!, ctx({}, { [STATUS_URL("ficium")]: () => json(200, { sha: "30669a5ffff", statuses: [
+      { context: "Vercel", state: "failure", description: "Deployment has failed", target_url: "https://vercel.com/ficium-s-projects/ficium/3hpa", updated_at: "2026-11-19T06:00:00Z" }] }) }).c);
+    expect(r.status).toBe("down");
+    expect(r.detail).toMatch(/commit 30669a5 failed .*last successful deploy.*Vercel build log/);
+  });
+
+  it("deploys: matches each admin project by its own context, never the other site's", async () => {
+    const twoProjects = { [STATUS_URL("ficium-admin")]: () => json(200, { sha: "aaaaaaa1", statuses: [
+      { context: "Vercel – ficium-portal-admin", state: "failure", updated_at: "2026-11-19T06:00:00Z" },
+      { context: "Vercel – ficium-admin", state: "success", updated_at: "2026-11-19T06:00:00Z" }] }) };
+    expect((await deployProbe(DEPLOYS.deploy_app_admin!, ctx({}, twoProjects).c)).status).toBe("up");
+    expect((await deployProbe(DEPLOYS.deploy_portal_admin!, ctx({}, twoProjects).c)).status).toBe("down");
+  });
+
+  it("deploys: a stuck build needs attention, a running one does not", async () => {
+    const pending = (created: string) => ({ [STATUS_URL("ficium-auth")]: () => json(200, { sha: "fb7e2e8000", statuses: [
+      { context: "cheerful-fascination - ficium-auth", state: "pending", created_at: created }] }) });
+    const now = Date.parse("2026-11-19T10:00:00Z");
+    expect((await deployProbe(DEPLOYS.deploy_auth!, ctx({}, pending("2026-11-19T09:55:00Z")).c, now)).status).toBe("up");
+    const stuck = await deployProbe(DEPLOYS.deploy_auth!, ctx({}, pending("2026-11-19T09:00:00Z")).c, now);
+    expect([stuck.status, stuck.detail]).toEqual(["attention", expect.stringMatching(/running for 60 minutes/)]);
+  });
+
+  it("deploys: an expired or too-narrow token is named as the token's problem, not a broken deploy", async () => {
+    const answer = (status: number, body: unknown = {}) => ({ [STATUS_URL("ficium")]: () => json(status, body) });
+    const expired = await deployProbe(DEPLOYS.deploy_borrower_app!, ctx({}, answer(401)).c);
+    expect([expired.status, expired.detail]).toEqual(["attention", expect.stringMatching(/expired or was revoked/)]);
+    const narrow = await deployProbe(DEPLOYS.deploy_borrower_app!, ctx({}, answer(404)).c);
+    expect([narrow.status, narrow.detail]).toEqual(["attention", expect.stringMatching(/Add this repository to the token/)]);
+    const limited = await deployProbe(DEPLOYS.deploy_borrower_app!, ctx({}, answer(403, { message: "API rate limit exceeded" })).c);
+    expect(limited.status).toBe("unknown");
+    const { c, urls } = ctx({ env: { ...ENV, GITHUB_STATUS_TOKEN: "" } });
+    expect((await deployProbe(DEPLOYS.deploy_borrower_app!, c)).status).toBe("not_configured");
+    expect(urls).toEqual([]);
+  });
+
+  it("deploys: no status yet is unknown; a link only ever points at Vercel or Railway", async () => {
+    const none = await deployProbe(DEPLOYS.deploy_portal!, ctx({}, { [STATUS_URL("ficium-portal")]: () => json(200, { sha: "834b26b0", statuses: [] }) }).c);
+    expect(none.status).toBe("unknown");
+    expect(logLink("https://vercel.com/a/b")).toBe("https://vercel.com/a/b");
+    expect(logLink("https://railway.com/project/x")).toBe("https://railway.com/project/x");
+    for (const bad of ["https://evil.example/vercel.com", "http://vercel.com/x", "https://vercel.com.evil.example/", "https://u:p@vercel.com/", "javascript:alert(1)", 7]) {
+      expect(logLink(bad)).toBeUndefined();
+    }
+  });
+
+  it("keys and tokens: expired is broken, due soon or undated needs attention, missing register is unknown", async () => {
+    const withAlerts = (v: unknown) => ctx({ q: async (s) => ({ rows: s.includes("api.credential_alerts") ? [{ v }] : [] }) }).c;
+    const expired = await runProbe("credentials", withAlerts({ ...CRED_OK, expired: [{ label: "GitHub token for borrower app builds", due_on: "2026-11-17" }] }));
+    expect([expired.status, expired.detail]).toEqual(["down", expect.stringContaining("GitHub token for borrower app builds (17 Nov 2026)")]);
+    resetProbeWindow();
+    expect((await runProbe("credentials", withAlerts({ ...CRED_OK, due_soon: [{ label: "AWS", due_on: "2026-11-30" }] }))).status).toBe("attention");
+    resetProbeWindow();
+    const undated = await runProbe("credentials", withAlerts({ ...CRED_OK, no_date: 18, tracked: 21 }));
+    expect([undated.status, undated.detail]).toEqual(["attention", expect.stringMatching(/18 of 21/)]);
+    resetProbeWindow();
+    expect((await runProbe("credentials", withAlerts(CRED_OK))).status).toBe("up");
+    resetProbeWindow();
+    const sql: string[] = [];
+    const absent = await runProbe("credentials", ctx({ q: async (s) => { sql.push(s); if (s.includes("api.credential_alerts")) throw { code: "42883" }; return { rows: [] }; } }).c);
+    expect(absent.status).toBe("unknown");
+    expect(sql).toEqual(["savepoint credential_alerts", "select api.credential_alerts() as v", "rollback to savepoint credential_alerts"]);
   });
 
   it("identity: down when unreachable, refusing, or serving no keys", async () => {
@@ -149,10 +241,10 @@ describe("probes", () => {
   });
 
   it("database changes: broken when one is not applied, naming it; and when the check is not installed", async () => {
-    const applied = EXPECTED_MIGRATIONS.app_admin.slice(0, -2);
+    const applied = EXPECTED_MIGRATIONS.app_admin.slice(0, -3);
     const missing = await runProbe("admin_schema", ctx({ q: async (s) => ({ rows: s.includes("schema_status") ? [{ v: applied }] : [] }) }).c);
     expect(missing.status).toBe("down");
-    expect(missing.detail).toContain("0011_api_traffic, 0012_schema_status");
+    expect(missing.detail).toContain("0011_api_traffic, 0012_schema_status, 0013_credentials");
     resetProbeWindow();
     const absent = await runProbe("admin_schema", ctx({ site: "portal", q: async (s) => { if (s.includes("schema_status")) throw { code: "42883" }; return { rows: [] }; } }).c);
     expect([absent.status, absent.detail]).toEqual(["down", expect.stringContaining("apply 0011_schema_status")]);
@@ -197,7 +289,8 @@ describe("probes", () => {
 
 function setup(site: "app" | "portal" = "app", fail?: { match: string; err: unknown }) {
   const db = fakeAdmin({ "api.traffic_view": { v: {} }, "select 1": { ok: 1 }, "ops_health_view": { v: { outbox: { pending: 0, dead: 0 } } },
-    "api.schema_status": { v: EXPECTED_MIGRATIONS[site === "portal" ? "portal_admin" : "app_admin"] } }, fail);
+    "api.schema_status": { v: EXPECTED_MIGRATIONS[site === "portal" ? "portal_admin" : "app_admin"] },
+    "api.credential_alerts": { v: CRED_OK } }, fail);
   const { f, urls } = net(HEALTHY);
   const deps: Deps = {
     requireStaff: staffOk(), withAdmin: db.withAdmin, site: () => site,
@@ -215,7 +308,8 @@ describe("service health endpoint", () => {
     expect(r.code).toBe(200);
     expect(db.calls[0]!.sql).toContain("api.traffic_view");
     expect(db.sessions[0]!.staff).toEqual(KJ);
-    expect(r.body.results.map((x: any) => x.key)).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel"]);
+    expect(r.body.results.map((x: any) => x.key)).toEqual(["admin_api", "admin_db", "admin_schema", "identity", "portal_api", "portal_channel",
+      "credentials", "deploy_portal", "deploy_portal_api", "deploy_portal_admin", "deploy_auth"]);
     expect(r.body.results.every((x: any) => x.status === "up")).toBe(true);
     expect(r.headers["Cache-Control"]).toBe("no-store");
   });
@@ -269,6 +363,14 @@ describe("service health endpoint", () => {
 });
 
 describe("audit.ts routing", () => {
+  it("sends ?module=credentials to the keys and tokens handler", () => {
+    const audit = vi.fn(), traffic = vi.fn(), services = vi.fn(), credentials = vi.fn();
+    const h = route(audit, traffic, services, credentials);
+    h({ headers: {}, query: { module: "credentials" } }, res());
+    h({ headers: {}, query: { module: ["credentials", "x"] } }, res());
+    expect([credentials.mock.calls.length, audit.mock.calls.length]).toEqual([2, 0]);
+  });
+
   it("sends ?module=services to the services handler", () => {
     const audit = vi.fn(), traffic = vi.fn(), services = vi.fn(); const h = route(audit, traffic, services);
     h({ headers: {}, query: { module: "services" } }, res());

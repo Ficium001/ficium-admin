@@ -33,11 +33,11 @@ describe("schema drift", () => {
   });
 
   it("the shipped expected list matches what is applied in production today, plus the new check", () => {
-    // Recorded in production on 2026-11-17 by migrate.sh-equivalent applies.
+    // Applied in production through 0012 / 0011 (2026-11-19); the credentials register is the new one.
     const app = EXPECTED_MIGRATIONS.app_admin.map((m) => m.version);
-    expect(app.at(-2)).toBe("0011_api_traffic");
-    expect(app.at(-1)).toBe("0012_schema_status");
-    expect(EXPECTED_MIGRATIONS.portal_admin.at(-1)!.version).toBe("0011_schema_status");
+    expect(app.at(-2)).toBe("0012_schema_status");
+    expect(app.at(-1)).toBe("0013_credentials");
+    expect(EXPECTED_MIGRATIONS.portal_admin.map((m) => m.version).slice(-2)).toEqual(["0011_schema_status", "0012_credentials"]);
   });
 });
 
