@@ -20,6 +20,7 @@ import { portalApi, bearer, PortalApiError, type PortalCall } from "./_lib/porta
 import { currentSite } from "./_lib/site.js";
 import { makeHandler as makeTrafficHandler, live as liveTraffic } from "./_lib/api-traffic.js";
 import { makeHandler as makeServicesHandler, live as liveServices } from "./_lib/services.js";
+import { readDrift, driftAlerts, hasDrift, dbFor } from "./_lib/schema-drift.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -52,7 +53,13 @@ export function makeHandler(deps: Deps) {
     const before = one(req.query?.before);
     try {
       if (source === "health") {
-        const health = await deps.withAdmin(staff, meta, async (q) => (await q("select api.ops_health_view() as v")).rows[0]?.v ?? null);
+        const health = await deps.withAdmin(staff, meta, async (q) => {
+          const h = (await q("select api.ops_health_view() as v")).rows[0]?.v ?? null;
+          // Database changes merged but not applied are an ops problem like any other.
+          const drift = await readDrift(q, dbFor(deps.site()), true);
+          if (!h || !hasDrift(drift)) return h;
+          return { ...h, healthy: false, alerts: [...(h.alerts ?? []), ...driftAlerts(drift)] };
+        });
         return res.status(200).json({ source, health });
       }
       if (source === "admin") {

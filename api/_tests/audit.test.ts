@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { makeHandler } from "../audit.js";
 import { res, fakeAdmin, staffOk } from "./admin-harness.js";
+import { EXPECTED_MIGRATIONS } from "../_lib/expected-migrations.js";
 
 const H = { authorization: "Bearer staff-token" };
 const get = (query: Record<string, string> = {}) => ({ method: "GET", headers: H, query });
@@ -10,10 +11,21 @@ const deps = (db: any, site: "app" | "portal" = "portal", portal = vi.fn(async (
 describe("/api/audit", () => {
   it.each(["app", "portal"] as const)("health source reads api.ops_health_view on the %s site, never portal-api", async (site) => {
     const h = { healthy: false, alerts: ["x"] }; const portal = vi.fn();
-    const db = fakeAdmin({ "api.ops_health_view": { v: h } }); const r = res();
+    const db = fakeAdmin({ "api.ops_health_view": { v: h },
+      "api.schema_status": { v: EXPECTED_MIGRATIONS[site === "portal" ? "portal_admin" : "app_admin"] } }); const r = res();
     await makeHandler(deps(db, site, portal as any))(get({ source: "health" }), r);
     expect(r.code).toBe(200); expect(r.body).toEqual({ source: "health", health: h });
     expect(db.calls[0]!.sql).toContain("api.ops_health_view"); expect(portal).not.toHaveBeenCalled();
+  });
+
+  it.each(["app", "portal"] as const)("health on the %s site raises database changes merged but not applied", async (site) => {
+    const db_ = site === "portal" ? "portal_admin" : "app_admin";
+    const h = { healthy: true, alerts: [] as string[] };
+    const db = fakeAdmin({ "api.ops_health_view": { v: h }, "api.schema_status": { v: EXPECTED_MIGRATIONS[db_].slice(0, -1) } }); const r = res();
+    await makeHandler(deps(db, site))(get({ source: "health" }), r);
+    expect(r.code).toBe(200);
+    expect(r.body.health.healthy).toBe(false);
+    expect(r.body.health.alerts).toEqual([`1 database change is not applied to ${db_}: ${EXPECTED_MIGRATIONS[db_].at(-1)!.version}. Run db/admin-db/migrate.sh ${db_}.`]);
   });
 
   it("admin source reads this site's chain through api.audit_search (which enforces audit.read)", async () => {

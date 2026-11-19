@@ -12,6 +12,8 @@ jobs:
         with: { node-version: 24, cache: npm }
       - run: npm ci
       - run: npm audit --audit-level=high --omit=dev
+      - name: Expected admin-DB migrations list is up to date
+        run: node scripts/expected-migrations.mjs --check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
