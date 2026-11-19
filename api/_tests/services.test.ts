@@ -244,7 +244,7 @@ describe("probes", () => {
     const applied = EXPECTED_MIGRATIONS.app_admin.slice(0, -3);
     const missing = await runProbe("admin_schema", ctx({ q: async (s) => ({ rows: s.includes("schema_status") ? [{ v: applied }] : [] }) }).c);
     expect(missing.status).toBe("down");
-    expect(missing.detail).toContain("0011_api_traffic, 0012_schema_status, 0013_credentials");
+    expect(missing.detail).toContain(EXPECTED_MIGRATIONS.app_admin.slice(-3).map((m) => m.version).join(", "));
     resetProbeWindow();
     const absent = await runProbe("admin_schema", ctx({ site: "portal", q: async (s) => { if (s.includes("schema_status")) throw { code: "42883" }; return { rows: [] }; } }).c);
     expect([absent.status, absent.detail]).toEqual(["down", expect.stringContaining("apply 0011_schema_status")]);

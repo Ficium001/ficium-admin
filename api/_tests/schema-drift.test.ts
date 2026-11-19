@@ -33,11 +33,14 @@ describe("schema drift", () => {
   });
 
   it("the shipped expected list matches what is applied in production today, plus the new check", () => {
-    // Applied in production through 0012 / 0011 (2026-11-19); the credentials register is the new one.
+    // Containment, not position: every new page adds a migration at the end, and this test must not
+    // need editing each time. What matters is that the drift check itself and the files around it ship.
     const app = EXPECTED_MIGRATIONS.app_admin.map((m) => m.version);
-    expect(app.at(-2)).toBe("0012_schema_status");
-    expect(app.at(-1)).toBe("0013_credentials");
-    expect(EXPECTED_MIGRATIONS.portal_admin.map((m) => m.version).slice(-2)).toEqual(["0011_schema_status", "0012_credentials"]);
+    const portal = EXPECTED_MIGRATIONS.portal_admin.map((m) => m.version);
+    expect(app).toEqual(expect.arrayContaining(["0011_api_traffic", "0012_schema_status", "0013_credentials"]));
+    expect(portal).toEqual(expect.arrayContaining(["0010_api_traffic", "0011_schema_status", "0012_credentials"]));
+    expect([...app].sort()).toEqual(app);
+    expect([...portal].sort()).toEqual(portal);
   });
 });
 
