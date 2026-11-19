@@ -11,7 +11,7 @@ describe("admin menu", () => {
       "Customers: Borrowers, KYC reviews, Data protection",
       "Product: Offers, App releases",
       "Setup: KYC settings, Team, Keys and tokens",
-      "Monitoring: Services, API traffic, Audit",
+      "Monitoring: Services, Incidents, API traffic, Audit",
     ]);
     expect(PORTAL_NAV.map((g) => g.label)).toEqual(["Banks", "Setup", "Monitoring"]);
   });
@@ -20,8 +20,8 @@ describe("admin menu", () => {
     const app = itemsOf(APP_NAV).map((i) => i.key), portal = itemsOf(PORTAL_NAV).map((i) => i.key);
     expect(new Set(app).size).toBe(app.length);
     expect(new Set(portal).size).toBe(portal.length);
-    expect([...app].sort()).toEqual(["audit", "clients", "credentials", "kyc", "offers", "privacy", "releases", "reviews", "services", "team", "traffic"]);
-    expect([...portal].sort()).toEqual(["applications", "audit", "commission", "compliance", "credentials", "institutions", "roles", "services", "team", "traffic"]);
+    expect([...app].sort()).toEqual(["audit", "clients", "credentials", "incidents", "kyc", "offers", "privacy", "releases", "reviews", "services", "team", "traffic"]);
+    expect([...portal].sort()).toEqual(["applications", "audit", "commission", "compliance", "credentials", "incidents", "institutions", "roles", "services", "team", "traffic"]);
   });
 
   it("opens the page a bookmark names, and the first page for anything else, including another site's page", () => {
@@ -29,6 +29,7 @@ describe("admin menu", () => {
     expect(sectionFrom("", APP_NAV)).toBe("clients");
     expect(sectionFrom("#institutions", APP_NAV)).toBe("clients");
     expect(sectionFrom("#nonsense", PORTAL_NAV)).toBe("applications");
+    expect(sectionFrom("#incidents/new/deploy_auth", PORTAL_NAV)).toBe("incidents");
     expect(locate("releases", APP_NAV)).toEqual({ group: "Product", label: "App releases" });
   });
 
@@ -41,7 +42,7 @@ describe("admin menu", () => {
     expect(html.match(/hidden=""/g)).toHaveLength(3);
     expect(html).toContain('<a href="#services" aria-current="page">Services</a>');
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-    expect(text(html)).toContain("Customers ▸ Borrowers KYC reviews Data protection Product ▸ Offers App releases Setup ▸ KYC settings Team Keys and tokens Monitoring ▾ Services API traffic Audit");
+    expect(text(html)).toContain("Customers ▸ Borrowers KYC reviews Data protection Product ▸ Offers App releases Setup ▸ KYC settings Team Keys and tokens Monitoring ▾ Services Incidents API traffic Audit");
   });
 
   it("on a phone, the Menu button names where you are and starts closed", () => {

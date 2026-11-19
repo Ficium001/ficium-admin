@@ -145,6 +145,7 @@ function Row({ s, r, busy, onTest }: { s: Service; r: Result | undefined; busy: 
         <span className={`pill ${st.pill}`}>{st.text}</span>
         {r?.detail && <><br /><span className="muted">{r.detail}</span></>}
         {safeLink(r?.link) && <><br /><a href={safeLink(r?.link)} target="_blank" rel="noopener noreferrer">Open the build log</a></>}
+        {(status === "down" || status === "attention") && <><br /><a href={`#incidents/new/${s.key}`}>Report an incident</a></>}
       </td>
       <td className="num">{millis(r?.ms ?? null)}</td>
       <td>{r ? fmtTime(r.checked_at) : "—"}</td>

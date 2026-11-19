@@ -12,8 +12,9 @@
  *
  * This file also serves /api/audit?module=traffic (API traffic, both sites, _lib/api-traffic.ts),
  * /api/audit?module=services (service health, both sites, _lib/services.ts) and
- * /api/audit?module=credentials (keys and tokens, both sites, _lib/credentials.ts): the Vercel plan
- * allows 12 function files and this repo has 12. The handlers share nothing but the file.
+ * /api/audit?module=credentials (keys and tokens, both sites, _lib/credentials.ts) and
+ * /api/audit?module=incidents (incidents, both sites, _lib/incidents.ts): the Vercel plan allows 12
+ * function files and this repo has 12. The handlers share nothing but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./_lib/admin-db.js";
@@ -24,6 +25,7 @@ import { makeHandler as makeServicesHandler, live as liveServices } from "./_lib
 import { readDrift, driftAlerts, hasDrift, dbFor } from "./_lib/schema-drift.js";
 import { readCredentialAlerts, credentialLines } from "./_lib/credential-alerts.js";
 import { makeHandler as makeCredentialsHandler, live as liveCredentials } from "./_lib/credentials.js";
+import { makeHandler as makeIncidentsHandler, live as liveIncidents, readIncidentAlerts, incidentLines } from "./_lib/incidents.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined> };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -62,8 +64,10 @@ export function makeHandler(deps: Deps) {
           const drift = await readDrift(q, dbFor(deps.site()), true);
           // So are keys and tokens past their date (red) or due within 14 days (amber).
           const cred = credentialLines(await readCredentialAlerts(q, true));
+          // And open serious incidents, and personal-data breaches the Commissioner must hear about.
+          const incidents = incidentLines(await readIncidentAlerts(q, true));
           if (!h) return h;
-          const alerts = [...(h.alerts ?? []), ...(hasDrift(drift) ? driftAlerts(drift) : []), ...cred.alerts];
+          const alerts = [...(h.alerts ?? []), ...(hasDrift(drift) ? driftAlerts(drift) : []), ...incidents, ...cred.alerts];
           return { ...h, healthy: h.healthy && alerts.length === (h.alerts ?? []).length, alerts, ...(cred.warnings.length ? { warnings: cred.warnings } : {}) };
         });
         return res.status(200).json({ source, health });
@@ -96,12 +100,13 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-/** One function file, four modules: `?module=traffic|services|credentials`, anything else is the audit log. */
+/** One function file, five modules: `?module=traffic|services|credentials|incidents`, anything else is the audit log. */
 export function route(
   audit: (req: Req, res: Res) => unknown,
   traffic: (req: Req, res: Res) => unknown,
   services: (req: Req, res: Res) => unknown = audit,
   credentials: (req: Req, res: Res) => unknown = audit,
+  incidents: (req: Req, res: Res) => unknown = audit,
 ) {
   return (req: Req, res: Res) => {
     const raw = req.query?.module;
@@ -109,6 +114,7 @@ export function route(
     return m === "traffic" ? traffic(req, res)
       : m === "services" ? services(req, res)
       : m === "credentials" ? credentials(req, res)
+      : m === "incidents" ? incidents(req, res)
       : audit(req, res);
   };
 }
@@ -118,4 +124,5 @@ export default route(
   (req, res) => makeTrafficHandler(liveTraffic())(req as any, res),
   (req, res) => makeServicesHandler(liveServices())(req as any, res),
   (req, res) => makeCredentialsHandler(liveCredentials())(req as any, res),
+  (req, res) => makeIncidentsHandler(liveIncidents())(req as any, res),
 );
