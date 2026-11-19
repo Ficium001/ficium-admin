@@ -47,7 +47,7 @@ describe("admin menu", () => {
   it("on a phone, the Menu button names where you are and starts closed", () => {
     const html = renderToStaticMarkup(<Sidebar nav={PORTAL_NAV} current="commission" />);
     expect(html).toContain('aria-expanded="false" aria-controls="sidebar-groups"');
-    expect(text(html)).toMatch(/^Menu Banks · Commission/);
+    expect(text(html)).toMatch(/^Ficium (App|Portal) admin Menu Banks · Commission/);
     expect(renderToStaticMarkup(<Sidebar nav={PORTAL_NAV} current="commission" initiallyOpen />)).toContain('class="sidebar open"');
   });
 });

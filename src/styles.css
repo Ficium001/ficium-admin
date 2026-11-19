@@ -1,10 +1,20 @@
 :root {
-  --paper: #eef1f4; --panel: #ffffff; --ink: #18212b; --steel: #5a6878; --rule: #d3d9e0;
-  --on: #2c7a57; --amber: #b8730a; --amber-ink: #7d4f00; --amber-wash: #fdf4e3; --red: #ad2a21; --red-wash: #fbeceb;
-  --focus: #2457c5;
-  font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--ink); background: var(--paper);
-  font-size: 16px; line-height: 1.5;
+  /* Ficium staff console. One accent (Ficium indigo); status colours mean status, nothing else. */
+  --ink: #131a2e; --canvas: #f2f3f7; --surface: #ffffff; --hairline: #e1e4ec; --slate: #5a6377;
+  --ficium: #3536dc; --ficium-press: #2a2bb8; --ficium-wash: #eeeefc;
+  --ok: #16794a; --ok-wash: #e7f4ed; --ok-line: #b6dcc6;
+  --warn: #8a5800; --warn-wash: #fbf2df; --warn-line: #ecd3a0;
+  --bad: #b3261e; --bad-wash: #fcebe9; --bad-line: #f0c2bd;
+  --brand: linear-gradient(180deg, #3536dc 0%, #356ef4 50%, #8231ec 100%);
+  /* Older names used across the pages, mapped onto the palette above. */
+  --paper: var(--canvas); --panel: var(--surface); --rule: var(--hairline); --line: var(--hairline); --steel: var(--slate);
+  --on: var(--ok); --amber: #b8730a; --amber-ink: var(--warn); --amber-wash: var(--warn-wash); --red: var(--bad); --red-wash: var(--bad-wash);
+  --focus: var(--ficium);
+  --display: "Bricolage Grotesque", "Inter Tight", system-ui, sans-serif;
+  font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink); background: var(--canvas);
+  font-size: 15px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0); }
@@ -74,35 +84,53 @@ h1, h2, p { margin: 0; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* ── Section nav + offers ─────────────────────────────────────────── */
-/* Menu: modules on the left, each opening to its pages; the page fills the rest of the width.
-   On a phone it folds into a Menu button. */
-.layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: calc(100vh - 48px); }
-.layout-main { min-width: 0; padding: 0 32px; }
-.layout-main .shell { max-width: 1120px; margin: 0; }
-.layout-main .shell.wide { max-width: 1120px; }
-.sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; padding: 20px 10px 24px; background: var(--panel); border-right: 1px solid var(--rule); }
+/* Menu: a dark ink rail on the left; the brand gradient runs down the seam with the page.
+   Modules open to their pages. On a phone it folds into a Menu button. */
+.layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+.layout-main { min-width: 0; padding: 0 40px; }
+.layout-main .shell, .layout-main .shell.wide { max-width: 1120px; margin: 0; padding-top: 40px; }
+.sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
+  padding: 24px 14px 18px; background: var(--ink); color: #c9cfdc; }
+.sidebar::after { content: ""; position: absolute; top: 0; right: 0; width: 3px; height: 100%; background: var(--brand); }
+.brand { display: grid; gap: 2px; padding: 0 10px 22px; }
+.wordmark { font-family: var(--display); font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; line-height: 1.1; }
+.brand-site { font-size: 0.82rem; color: #8f97ab; }
 .sidebar-toggle { display: none; }
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
-.nav-module + .nav-module { margin-top: 4px; }
-.nav-module-btn { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; font: inherit; font-size: 0.92rem; font-weight: 700; color: var(--ink); background: none; border: 0; border-radius: 4px; cursor: pointer; text-align: left; }
-.nav-module-btn:hover { background: var(--paper); }
-.nav-module-btn:focus-visible, .sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.nav-module.current > .nav-module-btn { background: var(--paper); }
-.chevron { color: var(--steel); font-size: 0.8rem; }
-.nav-pages { padding: 2px 0 6px 10px; }
+.sidebar-groups { flex: 1; }
+.nav-module + .nav-module { margin-top: 2px; }
+.nav-module-btn { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; font-family: var(--display); font-size: 0.98rem; font-weight: 600; color: #e6e9f1;
+  background: none; border: 0; border-radius: 6px; cursor: pointer; text-align: left; }
+.nav-module-btn:hover { background: rgba(255, 255, 255, 0.06); }
+.nav-module-btn:focus-visible, .sidebar a:focus-visible, .account-out:focus-visible, .sidebar-toggle:focus-visible { outline: 2px solid #8b8cf4; outline-offset: 1px; }
+.chevron { color: #7e879c; font-size: 0.8rem; }
+.nav-pages { padding: 2px 0 8px 10px; }
 .nav-pages[hidden] { display: none; }
-.sidebar a { display: flex; align-items: center; min-height: 36px; padding: 6px 10px; border-left: 2px solid var(--rule); color: var(--steel); font-size: 0.88rem; font-weight: 600; text-decoration: none; }
-.sidebar a:hover { color: var(--ink); border-left-color: var(--steel); }
-.sidebar a[aria-current="page"] { color: var(--ink); border-left-color: var(--ink); background: var(--paper); }
+.sidebar a { display: flex; align-items: center; min-height: 36px; padding: 6px 12px; border-left: 1px solid rgba(255, 255, 255, 0.12);
+  color: #aab2c4; font-size: 0.9rem; font-weight: 500; text-decoration: none; }
+.sidebar a:hover { color: #fff; border-left-color: rgba(255, 255, 255, 0.4); }
+.sidebar a[aria-current="page"] { color: #fff; font-weight: 600; border-left: 3px solid var(--ficium); padding-left: 10px;
+  background: rgba(53, 54, 220, 0.22); border-radius: 0 6px 6px 0; }
+.account { display: grid; gap: 8px; margin-top: 20px; padding: 14px 10px 0; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.account-email { font-size: 0.82rem; color: #aab2c4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-out { justify-self: start; font: inherit; font-size: 0.82rem; font-weight: 600; color: #e6e9f1; background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.account-out:hover { border-color: rgba(255, 255, 255, 0.45); }
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; min-height: 0; }
   .layout-main { padding: 0; }
-  .layout-main .shell, .layout-main .shell.wide { margin: 0 auto; }
-  .sidebar { position: static; height: auto; overflow: visible; padding: 12px 14px 0; background: none; border-right: 0; }
-  .sidebar-toggle { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; font: inherit; font-weight: 600; color: var(--ink); background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; }
-  .sidebar-toggle .muted { font-weight: 400; font-size: 0.85rem; }
-  .sidebar-groups { display: none; }
-  .sidebar.open .sidebar-groups { display: block; margin-top: 8px; padding: 8px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
+  .layout-main .shell, .layout-main .shell.wide { margin: 0 auto; padding-top: 20px; }
+  .sidebar { position: relative; height: auto; overflow: visible; padding: 14px 14px 14px; }
+  .sidebar::after { top: auto; bottom: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #3536dc, #356ef4, #8231ec); }
+  .brand { padding: 0 2px 12px; grid-auto-flow: column; justify-content: start; align-items: baseline; gap: 10px; }
+  .sidebar-toggle { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 12px; font: inherit; font-weight: 600; color: #fff; background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; cursor: pointer; }
+  .sidebar-toggle .muted { font-weight: 400; font-size: 0.85rem; color: #aab2c4; }
+  .sidebar-groups, .account { display: none; }
+  .sidebar.open .sidebar-groups { display: block; margin-top: 10px; }
+  .sidebar.open .account { display: grid; }
   .nav-module-btn, .sidebar a { min-height: 44px; }
 }
 .lead { margin-bottom: 16px; font-size: 0.92rem; }
@@ -200,3 +228,88 @@ h1, h2, p { margin: 0; }
 /* Services: the per-row explanation of what a test proves. */
 .table details { margin-top: 6px; font-size: 0.85rem; font-weight: normal; }
 .table details p { margin: 4px 0; }
+
+
+/* ── Visual refresh: one layer over the components above ───────────── */
+h1, .top h1, .auth h1 { font-family: var(--display); font-weight: 650; letter-spacing: -0.02em; }
+.top { align-items: flex-end; margin-bottom: 14px; }
+.top h1 { font-size: 2rem; line-height: 1.15; }
+h1:not(.top h1) { font-size: 1.75rem; }
+.history h2, .form h2, .group { font-family: var(--display); font-weight: 600; letter-spacing: -0.01em; }
+.lead { max-width: 72ch; color: var(--slate); font-size: 0.95rem; margin-bottom: 24px; }
+.who { font-size: 0.82rem; }
+
+/* Status: a coloured edge, not a coloured box. */
+.status { background: var(--surface); border: 1px solid var(--hairline); border-left: 4px solid var(--slate); border-radius: 8px; padding: 14px 18px; }
+.status.ok { border-left-color: var(--ok); }
+.status.warn { background: var(--surface); border-color: var(--hairline); border-left-color: #c98a12; }
+.status.danger { background: var(--surface); border-color: var(--hairline); border-left-color: var(--bad); color: var(--ink); }
+.status.danger strong { color: var(--bad); }
+
+/* Surfaces: flat, hairline, no shadows. Radius by size: 10 for panels, 8 for controls, round for pills. */
+.panel, .board { border-radius: 10px; border-color: var(--hairline); }
+.panel { padding: 22px 22px; }
+.confirm { border-radius: 8px; background: var(--canvas); border: 1px solid var(--hairline); padding: 16px; }
+.confirm.grave { background: var(--bad-wash); border-color: var(--bad-line); }
+
+/* Actions */
+.actions button, .ghost, .primary { font-family: inherit; font-weight: 600; font-size: 0.9rem; border-radius: 8px; padding: 8px 16px; min-height: 38px; cursor: pointer; }
+.ghost { background: var(--surface); border: 1px solid #cdd2dd; color: var(--ink); }
+.ghost:hover:not(:disabled) { border-color: var(--ink); }
+.primary { background: var(--ficium); border: 1px solid var(--ficium); color: #fff; }
+.primary:hover:not(:disabled) { background: var(--ficium-press); border-color: var(--ficium-press); }
+.primary.destructive { background: var(--bad); border-color: var(--bad); }
+.destructive-ghost { color: var(--bad); border-color: var(--bad-line); }
+:is(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--ficium); outline-offset: 2px; }
+
+/* Pills */
+.pill { font-size: 0.74rem; font-weight: 600; padding: 2px 10px; border-color: var(--hairline); color: var(--slate); background: var(--canvas); }
+.pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-wash); }
+.pill.warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-wash); }
+.pill.danger { color: var(--bad); border-color: var(--bad-line); background: var(--bad-wash); }
+
+/* Forms */
+.fld label, .confirm label { font-weight: 600; font-size: 0.86rem; }
+.fld :is(input, select, textarea), .confirm textarea, .auth input:not([type="checkbox"]) { border: 1px solid #cdd2dd; border-radius: 8px; background: var(--surface); }
+.fld :is(input, select, textarea):hover, .confirm textarea:hover { border-color: #a9b0bf; }
+
+/* Tables: a ledger. Sentence-case heads, tabular figures, row hover. */
+.table { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; font-size: 0.9rem; }
+.table thead th { font-size: 0.8rem; font-weight: 600; color: var(--slate); background: var(--canvas); text-transform: none; letter-spacing: 0; }
+.table th, .table td { padding: 12px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+.table tbody tr:last-child > * { border-bottom: 0; }
+.table tbody tr:hover > * { background: #fafbfd; }
+.table td, .table .num { font-variant-numeric: tabular-nums; }
+.table tfoot th { border-top: 1px solid var(--hairline); background: var(--canvas); }
+.change thead th { text-transform: none; letter-spacing: 0; font-size: 0.8rem; }
+.change table { border-radius: 8px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+
+/* Lists of rows */
+.row-btn { padding: 14px 18px; }
+.row-btn:hover, .case-row:hover { background: #fafbfd; }
+.case-row { border-radius: 8px; border-color: var(--hairline); padding: 12px 14px; }
+.case-row:hover { border-color: #a9b0bf; }
+.summary > div { border-radius: 10px; padding: 14px 16px; }
+.summary strong { font-family: var(--display); font-weight: 650; letter-spacing: -0.01em; }
+
+/* History */
+.history ol { border-left-color: var(--hairline); }
+.history li::before { background: var(--surface); border: 2px solid var(--slate); width: 10px; height: 10px; left: -6px; }
+
+/* Sign-in: the same rail colour, so the console is recognisable before you are in. */
+.auth { padding-top: 72px; }
+.auth h1 { font-size: 1.9rem; }
+/* Refinements after review */
+.table th .muted, .table td .muted { font-weight: 400; }
+.table tbody th { font-weight: 600; }
+.status .actions { margin: 10px 0 0; }
+.meta h2 { color: var(--ink); font-family: var(--display); font-size: 1.2rem; font-weight: 600; letter-spacing: -0.01em; }
+a { color: var(--ficium); text-underline-offset: 2px; }
+a:hover { color: var(--ficium-press); }
+.confirm.grave { background: #fff8f7; border: 1px solid var(--bad-line); border-left: 4px solid var(--bad); }
+@media (max-width: 600px) {
+  .layout-main .shell, .layout-main .shell.wide { padding-left: 14px; padding-right: 14px; }
+  .table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table tbody th { min-width: 200px; }
+  .table td { min-width: 96px; }
+}
