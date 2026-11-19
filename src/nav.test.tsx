@@ -32,18 +32,21 @@ describe("admin menu", () => {
     expect(locate("releases", APP_NAV)).toEqual({ group: "Product", label: "App releases" });
   });
 
-  it("renders a labelled, grouped menu with the current page marked", () => {
+  it("shows modules as main entries, with only the current page's module open", () => {
     const html = renderToStaticMarkup(<Sidebar nav={APP_NAV} current="services" />);
     expect(html).toContain('aria-label="Admin sections"');
+    expect(html.match(/class="nav-module-btn"/g)).toHaveLength(4);
+    expect(html).toMatch(/<button type="button" class="nav-module-btn" aria-expanded="true" aria-controls="nav-monitoring">/);
+    expect(html.match(/aria-expanded="true"/g)).toHaveLength(1);
+    expect(html.match(/hidden=""/g)).toHaveLength(3);
     expect(html).toContain('<a href="#services" aria-current="page">Services</a>');
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-    expect(html).toContain('<ul aria-labelledby="nav-monitoring">');
-    expect(text(html)).toContain("Customers Borrowers KYC reviews Product Offers App releases Setup KYC settings Team Monitoring Services API traffic Audit");
+    expect(text(html)).toContain("Customers ▸ Borrowers KYC reviews Product ▸ Offers App releases Setup ▸ KYC settings Team Monitoring ▾ Services API traffic Audit");
   });
 
   it("on a phone, the Menu button names where you are and starts closed", () => {
     const html = renderToStaticMarkup(<Sidebar nav={PORTAL_NAV} current="commission" />);
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="false" aria-controls="sidebar-groups"');
     expect(text(html)).toMatch(/^Menu Banks · Commission/);
     expect(renderToStaticMarkup(<Sidebar nav={PORTAL_NAV} current="commission" initiallyOpen />)).toContain('class="sidebar open"');
   });
