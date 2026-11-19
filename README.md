@@ -97,6 +97,26 @@ and the retention schedule.
 - Database: `app_admin/0014_data_protection.sql`; tests `db/admin-db/tests/data_protection.sql`,
   `api/_tests/data-protection.test.ts`. Served as `/api/clients?module=dp`.
 
+### Incidents
+
+Both sites, under **Monitoring**. Outages, security events, failed changes and supplier failures: severity
+(1 service down or data exposed, 2 a major feature broken for many, 3 minor), when it started and when it
+was noticed, an owner, an append-only timeline, the root cause and follow-ups. Any failing row on Services
+has a **Report an incident** link that opens the form for that service.
+
+- **Personal data.** The Data Protection Act 2017 s.25 requires telling the Data Protection Commissioner
+  without undue delay and, where feasible, within 72 hours of becoming aware (s.26: the people affected,
+  when the risk to them is high). Once an incident is marked as involving personal data, the countdown
+  shows on the page and as a red alert on the Audit health banner (and in the hourly dispatcher's log on
+  the app site) until the report is recorded, or compliance records why it is unlikely to put anyone at risk.
+- Open severity 1 and 2 incidents are also alerts on the Audit banner.
+- `incident.view` (all roles) / `incident.manage` (super admin, compliance, operations) / `incident.close`
+  (super admin, compliance; also the only role that may decide a breach is not reportable). Closing needs
+  it resolved, a root cause, every follow-up done and the breach question answered. Every step is audited.
+- Database: `app_admin/0015_incidents.sql`, `portal_admin/0013_incidents.sql`; tests
+  `db/admin-db/tests/incidents.sql` (`-v db=app_admin` or `portal_admin`), `api/_tests/incidents.test.ts`.
+  Served as `/api/audit?module=incidents`.
+
 ### Services
 
 Both sites. Every service the site depends on, whether it is answering right now, and a **Test** button

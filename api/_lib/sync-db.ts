@@ -13,6 +13,7 @@
 import pg from "pg";
 import { readDrift, driftAlerts, hasDrift } from "./schema-drift.js";
 import { readCredentialAlerts, credentialLines } from "./credential-alerts.js";
+import { readIncidentAlerts, incidentLines } from "./incidents.js";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
@@ -117,6 +118,11 @@ export async function healthCheck(): Promise<Health> {
     if (hasDrift(drift)) alerts.push(...driftAlerts(drift));
   } catch (e: any) {
     alerts.push(`Could not read which database changes app_admin has applied (${e?.code ?? "error"}).`);
+  }
+  try {
+    alerts.push(...incidentLines(await readIncidentAlerts((sql) => pool.query(sql), false)));
+  } catch (e: any) {
+    alerts.push(`Could not read the incident register (${e?.code ?? "error"}).`);
   }
   try {
     const cred = credentialLines(await readCredentialAlerts((sql) => pool.query(sql), false));

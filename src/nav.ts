@@ -10,13 +10,13 @@ export const APP_NAV: Group[] = [
   { label: "Customers", items: [{ key: "clients", label: "Borrowers" }, { key: "reviews", label: "KYC reviews" }, { key: "privacy", label: "Data protection" }] },
   { label: "Product", items: [{ key: "offers", label: "Offers" }, { key: "releases", label: "App releases" }] },
   { label: "Setup", items: [{ key: "kyc", label: "KYC settings" }, { key: "team", label: "Team" }, { key: "credentials", label: "Keys and tokens" }] },
-  { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
+  { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "incidents", label: "Incidents" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
 ];
 
 export const PORTAL_NAV: Group[] = [
   { label: "Banks", items: [{ key: "applications", label: "Applications" }, { key: "institutions", label: "Banks" }, { key: "commission", label: "Commission" }] },
   { label: "Setup", items: [{ key: "roles", label: "Roles" }, { key: "compliance", label: "Compliance" }, { key: "team", label: "Team" }, { key: "credentials", label: "Keys and tokens" }] },
-  { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
+  { label: "Monitoring", items: [{ key: "services", label: "Services" }, { key: "incidents", label: "Incidents" }, { key: "traffic", label: "API traffic" }, { key: "audit", label: "Audit" }] },
 ];
 
 export const navFor = (site: "app" | "portal"): Group[] => (site === "portal" ? PORTAL_NAV : APP_NAV);
@@ -24,7 +24,8 @@ export const itemsOf = (nav: Group[]): Item[] => nav.flatMap((g) => g.items);
 
 /** The page for a URL hash, or the first page when the hash names nothing on this site. */
 export function sectionFrom(hash: string, nav: Group[]): string {
-  const k = hash.replace(/^#/, "");
+  // "#incidents/new/deploy_auth": the page is the part before the first "/", the rest is for the page.
+  const k = hash.replace(/^#/, "").split("/")[0] ?? "";
   const items = itemsOf(nav);
   return items.find((i) => i.key === k)?.key ?? items[0]!.key;
 }

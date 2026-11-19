@@ -19,7 +19,7 @@ describe("Services page", () => {
   it("shows each service's status, why, answer time and a test button", () => {
     const t = text(base);
     expect(t).toMatch(/Sign-in service Railway · Sign-in service does things\..*Running Serving 2 signing keys\. 120 ms/);
-    expect(t).toMatch(/Portal API .* Broken Could not be reached\. 8\.0 s/);
+    expect(t).toMatch(/Portal API .* Broken Could not be reached\. Report an incident 8\.0 s/);
     expect(t).toMatch(/Admin database .* Slow Answered a test query\. Slower than 2 s\. 2\.4 s/);
     expect(t).toContain("Does not prove: Whether a sign-in works.");
     const html = renderToStaticMarkup(<ServicesView state={base} busy={null} error="" onTest={noop} onTestAll={noop} />);
@@ -55,6 +55,8 @@ describe("Services page", () => {
     expect(html).toContain("Latest deploys");
     expect(html).toContain('href="https://vercel.com/ficium-s-projects/ficium/3hpa"');
     expect(html).not.toContain("evil.example");
+    expect(html).toContain('href="#incidents/new/deploy_borrower_app"');
+    expect(html).not.toContain('href="#incidents/new/identity"');
     expect(text(state)).toMatch(/Sign-in service deploys .* Needs attention Token expired\./);
     expect(summary([res("a", "up"), res("b", "attention")]).text).toBe("1 service needs attention");
   });
