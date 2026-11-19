@@ -13,6 +13,7 @@ import CommissionPage from "./commission/CommissionPage";
 import ReleasesPage from "./releases/ReleasesPage";
 import ApiTrafficPage from "./traffic/ApiTrafficPage";
 import ServicesPage from "./services/ServicesPage";
+import CasesPage from "./cases/CasesPage";
 import IncidentsPage from "./incidents/IncidentsPage";
 import DataProtectionPage from "./data-protection/DataProtectionPage";
 import CredentialsPage from "./credentials/CredentialsPage";
@@ -53,6 +54,7 @@ function Admin() {
         : section === "offers" ? <OffersPage />
         : section === "releases" ? <ReleasesPage />
         : section === "services" ? <ServicesPage />
+        : section === "cases" ? <CasesPage />
         : section === "incidents" ? <IncidentsPage />
         : section === "privacy" ? <DataProtectionPage />
         : section === "credentials" ? <CredentialsPage />

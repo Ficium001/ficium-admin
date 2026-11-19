@@ -336,3 +336,13 @@ details.history ul { margin: 10px 0 0; padding-left: 18px; color: var(--slate); 
 .followups { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
 .followups li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--hairline); }
 .form .check { display: flex; gap: 8px; align-items: flex-start; font-size: 0.92rem; margin: 6px 0; }
+
+/* Stat row (also used by Marketplace) */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin: 12px 0 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; }
+.stat-row > div { padding: 14px 16px; }
+.stat-row > div + div { border-left: 1px solid var(--hairline); }
+.stat-row dt { font-size: 0.8rem; color: var(--slate); }
+.stat-row dd { margin: 4px 0 0; display: grid; gap: 2px; }
+.stat-row dd strong { font-family: var(--display); font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-row dd .muted { font-size: 0.78rem; }
+@media (max-width: 640px) { .stat-row > div + div { border-left: 0; border-top: 1px solid var(--hairline); } }

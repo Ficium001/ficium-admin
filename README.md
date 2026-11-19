@@ -79,6 +79,23 @@ the admin-DB transaction stays open across the portal call; if the portal refuse
 unreachable, it rolls back and nothing is recorded as done anywhere. Commands are idempotent by
 `command_id`, so a retry never applies twice.
 
+### Complaints and cases
+
+App site, under **Customers**. Every complaint, problem, question or piece of feedback from a borrower is a
+case (CASE-0001) with an owner, an acknowledgement deadline and an answer deadline, and an append-only
+timeline. Complaints also record whether they were upheld (fully, partly, not), the redress, and whether
+they were referred to a regulator or ombudsman; the page shows the complaints register for the last 12
+months (answered on time, upheld rate, by subject).
+
+- Deadlines come from **Ficium's own targets** per kind (seeded: complaints acknowledged in 48 h, answered in
+  15 days), editable on the page with a reason. They are copied onto each case when it opens, so a change
+  never moves an existing deadline. Not a regulation: if Ficium is licensed, set them to the regulator's rules.
+- `case.view` / `case.manage` (super admin, compliance, operations; not read-only: cases hold names and
+  what people said). Deciding a complaint needs `case.resolve_complaint` (super admin, compliance); upheld
+  needs the redress. A case can be reopened within 30 days. Every step is audited.
+- Database: `app_admin/0016_support_cases.sql`; tests `db/admin-db/tests/support_cases.sql`,
+  `api/_tests/support-cases.test.ts`. Served as `/api/clients?module=cases`.
+
 ### Data protection
 
 App site, under **Customers**. Requests from people about their personal data under the Data Protection
