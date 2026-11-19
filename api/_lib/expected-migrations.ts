@@ -20,6 +20,7 @@ export const EXPECTED_MIGRATIONS: { app_admin: Expected[]; portal_admin: Expecte
     { version: "0013_credentials", checksum: "e9bab61f59d5a50fca6fe2059af388648e20a3f47a21bfd50e5f273291f65a0a" },
     { version: "0014_data_protection", checksum: "2a292b4d1ad46466465a53e008532cdf52eaa778397739e159ef8091a14ae507" },
     { version: "0015_incidents", checksum: "8d4453ad166f7c7d2b1bcb3e961059db2ec35a9e5a907f8972a08ccac5d998ed" },
+    { version: "0016_support_cases", checksum: "b5412664089cffc1bb5c1967fbca7d14c03354ddfacc17ca3027b2b43bfb79c3" },
   ],
   portal_admin: [
     { version: "0001_platform", checksum: "6aae4ce98bea2caa57476da4dcb6d7075dafd100bb68ff0cb09b5a5546c8c384" },
