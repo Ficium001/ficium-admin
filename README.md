@@ -133,6 +133,20 @@ has a **Report an incident** link that opens the form for that service.
 - Database: `app_admin/0015_incidents.sql`, `portal_admin/0013_incidents.sql`; tests
   `db/admin-db/tests/incidents.sql` (`-v db=app_admin` or `portal_admin`), `api/_tests/incidents.test.ts`.
   Served as `/api/audit?module=incidents`.
+### Marketplace
+
+App site, under **Product**. Is the marketplace working: requests posted, how many got a bid and how fast
+(median and 90th percentile), how many were accepted, how many the bank then declined, per product and per
+week, for the last 7 / 30 / 90 days or 12 months. At the top, the liquidity alarm: open requests with no bid
+after 24 hours, and how long the oldest has waited.
+
+- The borrower app counts (`admin_marketplace_stats(days)` in its database, service_role only) and returns
+  totals only over the signed admin channel (`op=admin-app`, action `marketplace`). No borrower, request or
+  bank is named, and this site keeps only the fields it shows (`cleanMarketplace`).
+- Served as `/api/kyc?module=marketplace` (`api/_lib/marketplace.ts`). Gated by `traffic.view`, the
+  monitoring permission Services and API traffic use, checked in the admin DB first. No admin DB migration.
+- When the borrower app cannot answer, the page says which cause it is (keys do not match, channel off, the
+  borrower app not yet deployed with this read, its database change not applied).
 
 ### Services
 

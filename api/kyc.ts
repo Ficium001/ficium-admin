@@ -10,9 +10,9 @@
  * request, 72 h expiry, stale if the check changed). A change is pushed to the
  * App DB right after it commits (and retried hourly).
  *
- * This file also serves /api/kyc?module=releases (mobile app releases, _lib/releases.ts): the
- * Vercel plan allows 12 function files and this site has 12. The two handlers share nothing
- * but the file.
+ * This file also serves /api/kyc?module=releases (mobile app releases, _lib/releases.ts) and
+ * /api/kyc?module=marketplace (marketplace monitor, _lib/marketplace.ts): the Vercel plan allows 12
+ * function files and this site has 12. The handlers share nothing but the file.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./_lib/access.js";
 import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./_lib/admin-db.js";
@@ -20,6 +20,7 @@ import { CHECKS, MIN_REASON } from "./_lib/checks.js";
 import { isUuid } from "./_lib/offers.js";
 import { onlyOn } from "./_lib/site.js";
 import { makeHandler as makeReleasesHandler, live as liveReleases } from "./_lib/releases.js";
+import { makeHandler as makeMarketplaceHandler, live as liveMarketplace } from "./_lib/marketplace.js";
 
 type Req = { method?: string; headers: Record<string, string | string[] | undefined>; query?: Record<string, string | string[] | undefined>; body?: unknown };
 type Res = { status(code: number): Res; json(body: unknown): void; setHeader(k: string, v: string): void };
@@ -96,12 +97,21 @@ export function makeHandler(deps: Deps) {
   };
 }
 
-/** One function file, two modules: `?module=releases` goes to the releases handler, anything else is KYC. */
-export function route(kyc: (req: Req, res: Res) => unknown, releases: (req: Req, res: Res) => unknown) {
+/** One function file, three modules: `?module=releases|marketplace`, anything else is KYC. */
+export function route(
+  kyc: (req: Req, res: Res) => unknown,
+  releases: (req: Req, res: Res) => unknown,
+  marketplace: (req: Req, res: Res) => unknown = kyc,
+) {
   return (req: Req, res: Res) => {
-    const m = req.query?.module;
-    return (Array.isArray(m) ? m[0] : m) === "releases" ? releases(req, res) : kyc(req, res);
+    const raw = req.query?.module;
+    const m = Array.isArray(raw) ? raw[0] : raw;
+    return m === "releases" ? releases(req, res) : m === "marketplace" ? marketplace(req, res) : kyc(req, res);
   };
 }
 
-export default onlyOn("app", route(makeHandler(live), (req, res) => makeReleasesHandler(liveReleases())(req, res)));
+export default onlyOn("app", route(
+  makeHandler(live),
+  (req, res) => makeReleasesHandler(liveReleases())(req, res),
+  (req, res) => makeMarketplaceHandler(liveMarketplace())(req as any, res),
+));

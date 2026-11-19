@@ -337,8 +337,19 @@ details.history ul { margin: 10px 0 0; padding-left: 18px; color: var(--slate); 
 .followups li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--hairline); }
 .form .check { display: flex; gap: 8px; align-items: flex-start; font-size: 0.92rem; margin: 6px 0; }
 
-/* Stat row (also used by Marketplace) */
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin: 12px 0 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; }
+/* Marketplace (the stat row is shared with Complaints and cases) */
+.segmented { display: inline-flex; gap: 0; margin: 4px 0 8px; border: 1px solid #cdd2dd; border-radius: 8px; overflow: hidden; background: var(--surface); }
+.segmented .ghost { border: 0; border-radius: 0; min-height: 40px; padding: 6px 14px; }
+.segmented .ghost + .ghost { border-left: 1px solid var(--hairline); }
+.segmented .ghost[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.funnel { list-style: none; margin: 8px 0 6px; padding: 0; display: grid; gap: 10px; }
+.funnel li { display: grid; grid-template-columns: minmax(150px, 220px) 1fr 64px minmax(110px, 160px); align-items: center; gap: 12px; }
+.funnel-label { font-weight: 600; font-size: 0.92rem; }
+.funnel-bar { height: 12px; background: var(--canvas); border-radius: 4px; overflow: hidden; }
+.funnel-bar span { display: block; height: 100%; background: var(--ficium); border-radius: 0 4px 4px 0; }
+.funnel-n { font-family: var(--display); font-weight: 600; font-size: 1.15rem; text-align: right; font-variant-numeric: tabular-nums; }
+.funnel-note { font-size: 0.84rem; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; margin: 16px 0 12px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; }
 .stat-row > div { padding: 14px 16px; }
 .stat-row > div + div { border-left: 1px solid var(--hairline); }
 .stat-row dt { font-size: 0.8rem; color: var(--slate); }
@@ -346,3 +357,13 @@ details.history ul { margin: 10px 0 0; padding-left: 18px; color: var(--slate); 
 .stat-row dd strong { font-family: var(--display); font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat-row dd .muted { font-size: 0.78rem; }
 @media (max-width: 640px) { .stat-row > div + div { border-left: 0; border-top: 1px solid var(--hairline); } }
+.weekly { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 8px 0 0; border-bottom: 1px solid var(--hairline); }
+.weekly-col { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 3px; outline-offset: 2px; }
+.weekly-col:hover .weekly-bar, .weekly-col:focus-visible .weekly-bar { background: var(--ficium-press); }
+.weekly-bar { display: block; width: 100%; background: var(--ficium); border-radius: 4px 4px 0 0; min-height: 0; }
+.weekly-axis { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--slate); margin: 4px 0 8px; }
+@media (max-width: 640px) {
+  .funnel li { grid-template-columns: 1fr 56px; }
+  .funnel-bar { grid-column: 1 / -1; grid-row: 2; }
+  .funnel-note { grid-column: 1 / -1; }
+}
