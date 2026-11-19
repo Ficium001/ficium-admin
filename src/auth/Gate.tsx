@@ -1,8 +1,8 @@
 import { SITE_NAME } from "../site";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  AuthFailure, changePassword, claims, enrolConfirm, enrolStart, forgotPassword, hasMfa, isSignedIn,
-  login, logout, onAuthChange, refresh, strongPassword, verifyMfa,
+  AuthFailure, changePassword, enrolConfirm, enrolStart, forgotPassword, hasMfa, isSignedIn,
+  login, onAuthChange, refresh, strongPassword, verifyMfa,
 } from "./client";
 
 type View =
@@ -19,13 +19,8 @@ export default function Gate({ children }: { children: ReactNode }) {
     !isSignedIn() && cur.v !== "codes" && cur.v !== "code" && cur.v !== "signin" ? { v: "signin" } : cur)), []);
 
   if (view.v === "loading") return <main className="shell"><p className="muted">Checking your session…</p></main>;
-  if (view.v === "in") return (
-    <>
-      <div className="session"><span>{claims()?.email}</span>
-        <button className="ghost" onClick={() => logout()}>Sign out</button></div>
-      {children}
-    </>
-  );
+  // Signed in: the account and Sign out live at the foot of the menu (Sidebar).
+  if (view.v === "in") return <>{children}</>;
   return (
     <main className="shell auth">
       <h1>{SITE_NAME}</h1>

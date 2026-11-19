@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { locate, type Group } from "./nav";
+import { claims, logout } from "./auth/client";
+import { SITE } from "./site";
 
 /**
  * Left menu: each module is a main entry that opens to show its pages. The module holding the
  * current page is open; others start closed, and any can be opened or closed by hand.
  * On a phone the whole menu folds into a "Menu" button that names the current page.
  */
-export default function Sidebar({ nav, current, initiallyOpen = false }: { nav: Group[]; current: string; initiallyOpen?: boolean }) {
+export default function Sidebar({ nav, current, initiallyOpen = false, email = claims()?.email }: { nav: Group[]; current: string; initiallyOpen?: boolean; email?: string }) {
   const here = locate(current, nav);
   const [menuOpen, setMenuOpen] = useState(initiallyOpen);
   const [open, setOpen] = useState<Set<string>>(() => new Set(here ? [here.group] : []));
@@ -24,6 +26,10 @@ export default function Sidebar({ nav, current, initiallyOpen = false }: { nav: 
 
   return (
     <nav className={`sidebar${menuOpen ? " open" : ""}`} aria-label="Admin sections">
+      <div className="brand">
+        <span className="wordmark">Ficium</span>
+        <span className="brand-site">{SITE === "portal" ? "Portal admin" : "App admin"}</span>
+      </div>
       <button type="button" className="sidebar-toggle" aria-expanded={menuOpen} aria-controls="sidebar-groups" onClick={() => setMenuOpen(!menuOpen)}>
         <span>Menu</span>
         {here && <span className="muted">{here.group} · {here.label}</span>}
@@ -50,6 +56,10 @@ export default function Sidebar({ nav, current, initiallyOpen = false }: { nav: 
           );
         })}
       </ul>
+      <div className="account">
+        {email && <span className="account-email" title={email}>{email}</span>}
+        <button type="button" className="account-out" onClick={() => logout()}>Sign out</button>
+      </div>
     </nav>
   );
 }
