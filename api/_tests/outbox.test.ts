@@ -158,7 +158,7 @@ describe("stripSslParams", () => {
 });
 
 describe("parseDbUrl diagnostics never echo the value", () => {
-  const ok = "postgresql://ficium_admin_sync.ref:Abc123xyz@aws-1-ap-south-1.pooler.supabase.com:6543/postgres";
+  const ok = "postgresql://app_admin_worker:Abc123xyz@ep-example-pooler.ap-southeast-1.aws.neon.tech:6543/app_admin";
   it("accepts a well-formed URL", () => { expect(parseDbUrl(ok).port).toBe("6543"); });
   it.each([
     [` ${ok}\n`, "spaces or line breaks"],
