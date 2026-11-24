@@ -3,12 +3,13 @@
  *
  * ADMIN_DB_WORKER_URL  Neon app_admin as app_admin_worker: can call
  *                      api.outbox_claim/ack/nack and nothing else.
- * APP_DB_SYNC_URL      App DB (Supabase pooler) as ficium_admin_sync: can call
- *                      admin.sync_apply and nothing else.
+ *
+ * Events reach the borrower app over HTTPS only (app-sync.ts). This site holds
+ * no credentials to the App DB: the direct ficium_admin_sync connection was
+ * removed on 2026-11-24.
  *
  * TLS: Neon presents a publicly trusted certificate, so it is always fully
- * verified. The Supabase pooler uses Supabase's own CA: set APP_DB_CA_CERT
- * (the PEM from Supabase -> Database settings -> SSL) to verify it.
+ * verified.
  */
 import pg from "pg";
 import { readDrift, driftAlerts, hasDrift } from "./schema-drift.js";
@@ -18,9 +19,6 @@ import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
 
 let neon: pg.Pool | null = null;
-let app: pg.Pool | null = null;
-let warned = false;
-let warnedLegacy = false;
 
 function need(name: string): string {
   const v = process.env[name];
@@ -67,18 +65,6 @@ function neonPool(): pg.Pool {
   return neon;
 }
 
-function appPool(): pg.Pool {
-  if (!app) {
-    const ca = process.env.APP_DB_CA_CERT;
-    if (!ca && !warned) { warned = true; console.warn("APP_DB_CA_CERT not set: App DB TLS certificate is not verified"); }
-    app = new pg.Pool({
-      connectionString: stripSslParams(need("APP_DB_SYNC_URL")), max: 1,
-      ssl: ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
-    });
-  }
-  return app;
-}
-
 export function liveDeps(): DispatchDeps {
   return {
     async claim(limit, leaseSeconds) {
@@ -87,10 +73,9 @@ export function liveDeps(): DispatchDeps {
            from api.outbox_claim($1, $2)`, [limit, leaseSeconds]);
       return r.rows as OutboxEvent[];
     },
-    // HTTPS to the app's API when configured (the target). The direct App DB
-    // connection below is legacy and goes away once every deployment has
-    // APP_ADMIN_SYNC_URL + APP_ADMIN_SYNC_SIGNING_KEY.
-    apply: appSyncConfigured() ? appSyncApply() : legacyApply,
+    // HTTPS to the app's API, never a connection to its database. Unconfigured
+    // means every event fails, backs off and shows in the outbox health.
+    apply: appSyncConfigured() ? appSyncApply() : notConfigured,
     async ack(id) { await neonPool().query("select api.outbox_ack($1::uuid)", [id]); },
     async nack(id, error) { await neonPool().query("select api.outbox_nack($1::uuid, $2)", [id, error]); },
     now: () => Date.now(),
@@ -112,6 +97,9 @@ export async function healthCheck(): Promise<Health> {
   // The dispatcher runs on the app site only, against app_admin. A failed drift read must not hide
   // the rest of the health check.
   const alerts = [...(h.alerts ?? [])];
+  if (!appSyncConfigured()) {
+    alerts.push("Changes cannot reach the borrower app: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY.");
+  }
   let warnings: string[] = [];
   try {
     const drift = await readDrift((sql) => pool.query(sql), "app_admin", false);
@@ -134,14 +122,7 @@ export async function healthCheck(): Promise<Health> {
   return { ...h, healthy: h.healthy && alerts.length === (h.alerts ?? []).length, alerts, warnings };
 }
 
-/** LEGACY: direct App DB connection. Removed once the HTTPS path is live everywhere. */
-async function legacyApply(e: OutboxEvent): Promise<Outcome> {
-  if (!warnedLegacy) {
-    warnedLegacy = true;
-    console.warn("admin sync uses the direct App DB connection: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY");
-  }
-  const r = await appPool().query(
-    "select admin.sync_apply($1::uuid, $2, $3, $4, $5::bigint, $6::jsonb) as outcome",
-    [e.id, e.topic, e.aggregate_type, e.aggregate_id, e.aggregate_version, JSON.stringify(e.payload)]);
-  return r.rows[0].outcome as Outcome;
+/** Sync is not configured: refuse, so the event is retried and the health check shows it. */
+async function notConfigured(): Promise<Outcome> {
+  throw new Error("APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY are not set: events cannot reach the app");
 }
