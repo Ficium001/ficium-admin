@@ -23,6 +23,7 @@ import { requireStaffIdentity, AuthError, type Staff } from "./access.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./admin-db.js";
 import { portalApi, bearer, PortalApiError, type PortalCall } from "./portal-api.js";
 import { currentSite, type Site } from "./site.js";
+import { appEndpointProblem } from "./app-endpoint.js";
 import { appReleases, type AppReleases } from "./app-releases.js";
 import { readDrift, driftAlerts, hasDrift, dbFor } from "./schema-drift.js";
 import { readCredentialAlerts, names } from "./credential-alerts.js";
@@ -64,6 +65,8 @@ export type Result = {
 };
 
 export const SLOW_MS = 2_000;
+/** A queued change older than this has been refused repeatedly (sends are immediate, retries within minutes). */
+export const STUCK_S = 15 * 60;
 const TIMEOUT_MS = 8_000;
 /** The same service is not probed again inside this window; the last answer is returned instead. */
 export const MIN_INTERVAL_MS = 3_000;
@@ -330,6 +333,8 @@ export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "s
   },
 
   borrower_app: async (c) => {
+    const bad = appEndpointProblem(c.env);
+    if (bad) return { status: "down", ms: null, detail: `${bad} Nothing can be sent to the borrower app until it is fixed.` };
     const origin = originOf(c.env.APP_ADMIN_SYNC_URL);
     if (!origin) return { status: "not_configured", ms: null, detail: "No borrower app is configured on this deployment." };
     const r = await getJson(`${origin}/api/keepalive`, c.fetchImpl);
@@ -412,8 +417,15 @@ export const PROBES: Record<string, (c: ProbeContext) => Promise<Pick<Result, "s
       return { status: "down", ms: null,
         detail: `${dead} change${dead === 1 ? "" : "s"} could not be delivered after 12 tries. The Audit page has the detail.` };
     }
+    // A change is sent the moment it is approved and retried within minutes, so one still waiting
+    // after 15 minutes has been refused several times: that is a fault, not a queue.
     if (oldest > 7200) {
-      return { status: "slow", ms: null, detail: `A change has been waiting ${Math.floor(oldest / 3600)} hours to reach the borrower app.` };
+      return { status: "down", ms: null,
+        detail: `A change has been waiting ${Math.floor(oldest / 3600)} hours to reach the borrower app. The Audit page has the error.` };
+    }
+    if (oldest > STUCK_S) {
+      return { status: "slow", ms: null,
+        detail: `A change has been waiting ${Math.floor(oldest / 60)} minutes to reach the borrower app: it is being refused. The Audit page has the error.` };
     }
     if (pending > 0) return { status: "up", ms: null, detail: `${pending} change${pending === 1 ? "" : "s"} waiting, none overdue.` };
     return { status: "up", ms: null, detail: "Nothing waiting." };
