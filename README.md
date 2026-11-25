@@ -12,12 +12,26 @@ Ficium's internal staff app. Not customer-facing. Modules:
   approves. The admin DB refuses a minimum above the latest released version. The page also shows how
   many borrowers used each app version in the last 7 and 30 days (totals read from the borrower app's
   signed API), and how many a new minimum would block, before it is asked for. See *App releases* below.
-- **Team** — invite Ficium staff, change their roles, suspend or disable them. An invite is one admin-DB
-  transaction (`api.iam_invite`, needs `iam.manage`) that also creates the person's ficium-auth login
-  *as the inviter* (`POST /auth/staff/provision`, which itself requires an MFA staff token). New logins get
-  the ficium-auth role `ficium_staff` (no bank-portal powers). The set-password link (24 h, single use) is
-  emailed to the invitee only — never shown to the inviter — so invites need working email (Resend).
-  Nobody can change their own roles or status.
+- **Team** — the same standard as the bank portal's user module, on both sites. Three tabs:
+  - *Members*: search, username, groups, sign-in state (password set, authenticator on, locked), last
+    sign-in and last use of this site. Invite, change groups, rename, **reset sign-in** (optionally also the
+    authenticator, for a lost phone), reactivate: each is **asked for by one admin (`iam.manage`) and
+    approved by a different one (`iam.approve`)**, never about yourself; the approval is the change.
+    Suspend and disable are immediate and one-person: cutting access off never waits. The last active
+    super admin can't be removed. Requests expire after 7 days.
+  - *Groups*: the permission sets people are given. Built-in groups can have their permissions changed
+    (Super admin is locked); new groups can be created and, once empty, retired. All four-eyes.
+  - *Approvals*: what's waiting (with a now / after-approval table), and what was decided.
+
+  Approving an invite creates the person's ficium-auth login *as the approver* (`POST /auth/staff/provision`,
+  MFA staff token) in the same admin-DB transaction; if ficium-auth refuses, nothing is recorded. Someone
+  who already signs in to the other admin site keeps their login (`existing`, nothing sent). A reset
+  (`POST /auth/staff/reset`) makes the password unusable, signs them out everywhere, clears a lockout and
+  emails only them a 24 h link; nobody ever sees a password. Usernames, MFA and last sign-in are read live
+  from ficium-auth (`POST /auth/staff/lookup`), never copied here. Database: `app_admin/0017` and
+  `portal_admin/0014` (`team_four_eyes`, one template: `db/admin-db/platform/team_four_eyes.sql.tmpl`,
+  regenerate with `node scripts/gen-team-migration.mjs`); tests `db/admin-db/tests/team_four_eyes.sql`
+  (`-v db=app_admin` or `portal_admin`), `api/_tests/team.test.ts`. Needs the matching ficium-auth release.
 
 - **Commission** (portal admin) — what Ficium charges a bank on each booked deal, per bank, product,
   both, or the platform default. Each rule is a fee model (portal-api db/072, shared logic in
