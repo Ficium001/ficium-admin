@@ -11,6 +11,7 @@
  * the browser.
  */
 import type { PortalCall } from "./portal-api.js";
+import { describeModel, modelOf, type ModelLike } from "./fee-model.js";
 
 export type ChangeRow = { field: string; before: string | null; after: string | null };
 export type Change = { rows: ChangeRow[]; described: true };
@@ -21,8 +22,8 @@ type Inst = {
   institution_id: string; name: string; approved: boolean; suspended_at: string | null;
   active_members: number | string; entitlements: Ent[];
 };
-type Rule = {
-  rule_id: string; institution_id: string | null; product_code: string | null; rate: string;
+type Rule = ModelLike & {
+  rule_id: string; institution_id: string | null; product_code: string | null; rate: string | null;
   effective_from: string; ended_on: string | null;
 };
 type Application = {
@@ -73,13 +74,13 @@ export async function snapshot(op: string, args: Record<string, unknown>, portal
       const r = rules.find((x) => x.ended_on == null
         && (x.institution_id ?? null) === (args.institution_id ?? null)
         && (x.product_code ?? null) === (args.product_code ?? null));
-      return r ? { exists: true, rule_id: r.rule_id, rate: String(r.rate), effective_from: day(r.effective_from) } : { exists: false };
+      return r ? { exists: true, rule_id: r.rule_id, ...modelOf(r), effective_from: day(r.effective_from) } : { exists: false };
     }
     case "commission.end": {
       const rules = (await portal("query", { op: "commission.rules", args: {} }, actor)) as Rule[];
       const r = rules.find((x) => x.rule_id === args.rule_id);
       if (!r) throw new ChangeError("That commission rule was not found in the portal");
-      return { rate: String(r.rate), effective_from: day(r.effective_from), ended_on: day(r.ended_on) };
+      return { ...modelOf(r), effective_from: day(r.effective_from), ended_on: day(r.ended_on) };
     }
     case "institution.provision": {
       const apps = (await portal("query", { op: "access_requests.list", args: { status: "open" } }, actor)) as Application[];
@@ -117,14 +118,14 @@ export function rows(op: string, args: Record<string, unknown>, s: Snapshot): Ch
     case "commission.set": {
       const had = s.exists === true;
       const out: ChangeRow[] = [
-        { field: "Rate", before: had ? pct(s.rate) : "No rule of its own", after: pct(args.rate) },
+        { field: "Fee", before: had ? describeModel(s as ModelLike) : "No rule of its own", after: describeModel(args as ModelLike) },
         { field: "Applies from", before: had ? String(s.effective_from) : null, after: day(args.effective_from) },
       ];
-      if (had) out.push({ field: `Current ${pct(s.rate)} rule ends`, before: "Open", after: day(args.effective_from) });
+      if (had) out.push({ field: "Current rule ends", before: "Open", after: day(args.effective_from) });
       return out;
     }
     case "commission.end":
-      return [{ field: "Rate", before: pct(s.rate), after: pct(s.rate) },
+      return [{ field: "Fee", before: describeModel(s as ModelLike), after: describeModel(s as ModelLike) },
               { field: "In force from", before: String(s.effective_from), after: String(s.effective_from) },
               { field: "Ends on", before: s.ended_on ? String(s.ended_on) : "Open", after: day(args.ended_on) }];
     case "institution.provision":

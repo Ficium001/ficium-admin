@@ -19,10 +19,17 @@ Ficium's internal staff app. Not customer-facing. Modules:
   emailed to the invitee only — never shown to the inviter — so invites need working email (Resend).
   Nobody can change their own roles or status.
 
-- **Commission** (portal admin) — the rate Ficium charges a bank on each booked deal, per bank, product,
-  both, or the platform default. Ask to set a rate from a date (never backwards) or to end an override; a
-  second admin approves and portal-api applies it to `billing.commission_rule` (Portal DB). Rules are never
-  edited, so what was charged when stays on record. Banks without the deals module are never charged.
+- **Commission** (portal admin) — what Ficium charges a bank on each booked deal, per bank, product,
+  both, or the platform default. Each rule is a fee model (portal-api db/072, shared logic in
+  `api/_lib/fee-model.ts`): a percentage of the booked amount (loans), of the first year's money in (first
+  amount + monthly amount x months, for regular savings/investment plans), or per year of term (deposits,
+  bonds), banded rates (marginal or whole), or a fixed fee; with an optional minimum and maximum fee and a
+  clawback window (full or pro rata) that credits the fee back when the bank reports the account closed
+  early. "Try it on an example deal" asks the Portal DB to work the fee out with the same function the
+  booking uses. Ask to set a rule from a date (never backwards) or to end an override; a second admin
+  approves and portal-api applies it to `billing.commission_rule` (Portal DB). Rules are never edited, so
+  what was charged when stays on record. Statements show clawback credits in the month the account closed,
+  and the net. Banks without the deals module are never charged.
 
 ## How it's protected
 
@@ -323,7 +330,7 @@ removed on 2026-11-24: no service holds credentials to another service's databas
 4. No Vercel cron and no `ADMIN_DB_WORKER_URL` / `APP_DB_*` on this project: the portal site has
    no outbox worker and no App DB access.
 
-Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests`, `0004_require_permission` (2026-10-27), `0005_ops_health` (2026-10-30). **Pending:** `0006_commission` (needs `migrate.sh portal_admin` before the Commission page works).
+Migrations applied to `portal_admin`: `0001_platform`, `0002_portal_compliance`, `0003_change_requests`, `0004_require_permission` (2026-10-27), `0005_ops_health` (2026-10-30), `0006_commission` (confirmed live 2026-11-25).
 
 **Alerts.** The app admin's hourly dispatcher logs `ALERT ops health …` when the audit chain fails
 verification, a sync event is dead-lettered, or a change has waited over 2 hours. Route that log line

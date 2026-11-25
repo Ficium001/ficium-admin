@@ -27,7 +27,10 @@ describe("buildRequest (commission)", () => {
     const r = buildRequest(set, TODAY);
     expect(r.key).toBe(`${INST}:home_loan`);
     expect(r.label).toBe("MCB · Home loan");
-    expect(r.args).toEqual({ institution_id: INST, product_code: "home_loan", rate: "0.0045", effective_from: TODAY, reason: set.reason });
+    expect(r.args).toEqual({
+      institution_id: INST, product_code: "home_loan", basis: "booked_amount", rate: "0.0045", params: {},
+      min_fee: null, max_fee: null, clawback_months: 0, clawback_mode: "none", effective_from: TODAY, reason: set.reason,
+    });
   });
   it("set: blank bank and product is the platform default", () => {
     const r = buildRequest({ ...set, institution_id: "", institution_name: "", product_code: "", rate_percent: "0.9" }, TODAY);
@@ -79,11 +82,12 @@ describe("/api/commission (portal admin site)", () => {
     const params = db.calls[0]!.params as any[];
     expect(params[0]).toBe("commission.set");
     expect(params[3]).toMatchObject({ rate: "0.0045" });
-    expect(params[5]).toEqual({ exists: true, rule_id: RULE, rate: "0.0040", effective_from: "2026-01-01" });
+    expect(params[5]).toEqual({ exists: true, rule_id: RULE, basis: "booked_amount", rate: "0.0040", params: {},
+      min_fee: null, max_fee: null, clawback_months: 0, clawback_mode: "none", effective_from: "2026-01-01" });
     expect(params[6].rows).toEqual([
-      { field: "Rate", before: "0.4%", after: "0.45%" },
+      { field: "Fee", before: "0.4% of the booked amount", after: "0.45% of the booked amount" },
       { field: "Applies from", before: "2026-01-01", after: TODAY },
-      { field: "Current 0.4% rule ends", before: "Open", after: TODAY },
+      { field: "Current rule ends", before: "Open", after: TODAY },
     ]);
     expect(p.mock.calls.every((c) => c[0] === "query")).toBe(true);
   });
@@ -93,7 +97,7 @@ describe("/api/commission (portal admin site)", () => {
     await makeHandler(deps(db, fakePortal({ "commission.rules": [] })))(post({ action: "request", ...set }), r);
     const params = db.calls[0]!.params as any[];
     expect(params[5]).toEqual({ exists: false });
-    expect(params[6].rows[0]).toEqual({ field: "Rate", before: "No rule of its own", after: "0.45%" });
+    expect(params[6].rows[0]).toEqual({ field: "Fee", before: "No rule of its own", after: "0.45% of the booked amount" });
   });
 
   it("approve sends the stored command to portal-api and records the result", async () => {
@@ -113,6 +117,64 @@ describe("/api/commission (portal admin site)", () => {
     await makeHandler(deps(db, p))(post({ action: "approve", id: REQ, version: 1 }), r);
     expect(r.code).toBe(409);
     expect(db.calls.some((c) => c.sql.includes("record_result"))).toBe(false);
+  });
+});
+
+describe("fee models through the request", () => {
+  const plan = { ...set, product_code: "savings_plan", product_name: "Monthly Savings Plan", basis: "annualised",
+    rate_percent: "1", months: "12", min_fee: "250", max_fee: "5000", clawback_months: "6", clawback_mode: "pro_rata" };
+
+  it("an annualised plan rule carries its whole model to portal-api", () => {
+    const r = buildRequest(plan, TODAY);
+    expect(r.args).toMatchObject({ basis: "annualised", rate: "0.0100", params: { months: 12 },
+      min_fee: "250.00", max_fee: "5000.00", clawback_months: 6, clawback_mode: "pro_rata" });
+  });
+
+  it("the reviewer sees the model in words, old and new", async () => {
+    const db = fakeAdmin({ "api.change_request_create": { v: { id: REQ } } }); const r = res();
+    await makeHandler(deps(db, fakePortal({ "commission.rules": [] })))(post({ action: "request", ...plan }), r);
+    expect(r.code).toBe(200);
+    const rows = (db.calls[0]!.params as any[])[6].rows;
+    expect(rows[0].after).toBe("1% of the first amount plus 12 months of the monthly amount · at least MUR 250 · at most MUR 5,000 · unearned share refunded if closed within 6 months");
+  });
+
+  it("a flat fee has no rate and no limits", () => {
+    const r = buildRequest({ ...set, basis: "flat", rate_percent: "", flat_amount: "350" }, TODAY);
+    expect(r.args).toMatchObject({ basis: "flat", rate: null, params: { amount: 350 }, min_fee: null, max_fee: null });
+  });
+
+  it("tiered bands become numbers, the last with no limit", () => {
+    const r = buildRequest({ ...set, basis: "tiered", tier_mode: "marginal",
+      tiers: [{ up_to: "100000", rate_percent: "1" }, { up_to: "500000", rate_percent: "0.5" }, { up_to: "", rate_percent: "0.25" }] }, TODAY);
+    expect((r.args as { params?: unknown }).params).toEqual({ mode: "marginal", tiers: [
+      { up_to: 100000, rate: 0.01 }, { up_to: 500000, rate: 0.005 }, { up_to: null, rate: 0.0025 }] });
+  });
+
+  it.each([
+    [{ basis: "annualised", months: "0" }, "Months"],
+    [{ basis: "tiered", tiers: [{ up_to: "500", rate_percent: "1" }, { up_to: "400", rate_percent: "1" }, { rate_percent: "1" }] }, "above the one before"],
+    [{ basis: "flat", flat_amount: "" }, "fixed fee"],
+    [{ min_fee: "500", max_fee: "100" }, "minimum fee"],
+    [{ clawback_months: "40" }, "Clawback"],
+    [{ basis: "trail" }, "Choose how"],
+  ])("refuses %o with a clear message", (over, msg) => expect(() => buildRequest({ ...set, ...over }, TODAY)).toThrow(msg));
+
+  it("preview checks commission.read, then asks the Portal DB to do the sum", async () => {
+    const db = fakeAdmin(); const portal = vi.fn(async () => ({ calc: { fee: 250 } })); const r = res();
+    await makeHandler(deps(db, portal) as any)(post({ action: "preview", ...plan, inputs: { amount: "1000", monthly_amount: "500" } }), r);
+    expect(r.code).toBe(200); expect(r.body).toEqual({ calc: { fee: 250 } });
+    expect(db.calls[0]!.sql).toContain("require_permission('commission.read')");
+    expect(portal).toHaveBeenCalledWith("query", { op: "commission.preview", args: expect.objectContaining({
+      basis: "annualised", rate: "0.0100", inputs: { amount: "1000", monthly_amount: "500" } }) }, "staff-token");
+  });
+
+  it("preview refuses a bad model or example without asking anyone", async () => {
+    const db = fakeAdmin(); const portal = vi.fn(); const r = res();
+    await makeHandler(deps(db, portal) as any)(post({ action: "preview", ...plan, months: "99", inputs: { amount: "1000" } }), r);
+    expect(r.code).toBe(400); expect(portal).not.toHaveBeenCalled();
+    const r2 = res();
+    await makeHandler(deps(db, portal) as any)(post({ action: "preview", ...plan, inputs: { amount: "-3" } }), r2);
+    expect(r2.code).toBe(400); expect(r2.body.error).toContain("example amount");
   });
 });
 
