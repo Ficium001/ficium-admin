@@ -9,6 +9,7 @@
  * through APIs, never through each other's databases.
  */
 import { sign } from "./portal-api.js";
+import { appEndpoint } from "./app-endpoint.js";
 import type { OutboxEvent, Outcome } from "./outbox.js";
 
 type Env = Record<string, string | undefined>;
@@ -19,10 +20,7 @@ export const appSyncConfigured = (env: Env = process.env) =>
 
 export function appSyncApply(env: Env = process.env, f: typeof fetch = fetch) {
   return async (e: OutboxEvent): Promise<Outcome> => {
-    const url = new URL(env.APP_ADMIN_SYNC_URL!.trim());
-    if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
-      throw new Error("APP_ADMIN_SYNC_URL must use https");
-    }
+    const url = appEndpoint("admin-sync", env);
     const raw = JSON.stringify({
       event_id: e.id, topic: e.topic, aggregate_type: e.aggregate_type, aggregate_id: e.aggregate_id,
       aggregate_version: Number(e.aggregate_version), payload: e.payload,

@@ -14,6 +14,7 @@
  * checked in the admin database before the borrower app is asked anything.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./access.js";
+import { appEndpoint } from "./app-endpoint.js";
 import { withAdmin, requestMeta, dbError, type Q, type Meta } from "./admin-db.js";
 import { sign } from "./portal-api.js";
 
@@ -78,11 +79,9 @@ export function borrowerApp(env: Env = process.env, f: typeof fetch = fetch): Re
   const base = env.APP_ADMIN_SYNC_URL?.trim(), key = env.APP_ADMIN_SYNC_SIGNING_KEY?.trim();
   if (!base || !key) return null;
   return async (days) => {
-    const url = new URL(base);
-    if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
-      throw new MarketplaceError("APP_ADMIN_SYNC_URL must use https", 503);
-    }
-    url.searchParams.set("op", "admin-app");
+    let url: URL;
+    try { url = appEndpoint("admin-app", env); }
+    catch (e) { throw new MarketplaceError((e as Error).message, 503); }
     const raw = JSON.stringify({ action: "marketplace", days });
     let r: Response;
     try {

@@ -6,6 +6,7 @@
  * The borrower app owns the numbers; this site owns the release policy. Never a database connection.
  */
 import { sign } from "./portal-api.js";
+import { appEndpoint } from "./app-endpoint.js";
 
 type Env = Record<string, string | undefined>;
 export type AppliedPolicy = { platform: string; min_version: string; latest_version: string; store_url: string; version: number; updated_at: string };
@@ -49,11 +50,9 @@ export function appReleases(env: Env = process.env, f: typeof fetch = fetch): Ap
   if (!base || !key) return null;
   return {
     usage: async () => {
-      const url = new URL(base);
-      if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
-        throw new AppReleasesError("APP_ADMIN_SYNC_URL must use https");
-      }
-      url.searchParams.set("op", "admin-app");
+      let url: URL;
+      try { url = appEndpoint("admin-app", env); }
+      catch (e) { throw new AppReleasesError((e as Error).message); }
       const raw = JSON.stringify({ action: "stats" });
       const r = await f(url, {
         method: "POST", body: raw, signal: AbortSignal.timeout(10_000),

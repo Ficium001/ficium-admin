@@ -203,6 +203,13 @@ describe("probes", () => {
     expect(db.detail).toMatch(/database did not answer/);
   });
 
+  it("borrower app: a sync URL that cannot work is down before anything is sent (2026-11-25)", async () => {
+    const f = vi.fn();
+    const r = await runProbe("borrower_app", ctx({ env: { ...ENV, APP_ADMIN_SYNC_URL: "https://app.example" }, fetchImpl: f as any }).c);
+    expect([r.status, r.detail]).toEqual(["down", expect.stringMatching(/\/api\/internal/)]);
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it("portal API: down unless it reports itself ok, and says it does not check the database", async () => {
     const r = await runProbe("portal_api", ctx({}, { "https://portal.example/health": () => json(200, { status: "starting" }) }).c);
     expect(r.status).toBe("down");
@@ -225,12 +232,18 @@ describe("probes", () => {
     expect(portal).toHaveBeenCalledWith("query", { op: "traffic.overview", args: {} }, "staff-token");
   });
 
-  it("delivery: failed deliveries are down, an old wait is slow, a missing permission is unknown, not down", async () => {
+  it("delivery: failed deliveries and a wait over 2 hours are down, over 15 minutes is slow, a missing permission is unknown, not down", async () => {
     const snap = (outbox: unknown) => ctx({ q: async (s) => ({ rows: s.includes("ops_health_view") ? [{ v: { outbox } }] : [] }) }).c;
     expect((await runProbe("delivery", snap({ pending: 1, dead: 2, oldest_pending_s: 60 }))).status).toBe("down");
     resetProbeWindow();
     const late = await runProbe("delivery", snap({ pending: 1, dead: 0, oldest_pending_s: 3 * 3600 }));
-    expect([late.status, late.detail]).toEqual(["slow", expect.stringMatching(/3 hours/)]);
+    expect([late.status, late.detail]).toEqual(["down", expect.stringMatching(/3 hours/)]);
+    // Sends are immediate and retried within minutes: 20 minutes waiting means it is being refused.
+    resetProbeWindow();
+    const stuck = await runProbe("delivery", snap({ pending: 1, dead: 0, oldest_pending_s: 20 * 60 }));
+    expect([stuck.status, stuck.detail]).toEqual(["slow", expect.stringMatching(/20 minutes.*refused/)]);
+    resetProbeWindow();
+    expect((await runProbe("delivery", snap({ pending: 1, dead: 0, oldest_pending_s: 60 }))).status).toBe("up");
 
     resetProbeWindow();
     const sql: string[] = [];

@@ -305,7 +305,7 @@ admin** project; without them every event fails and backs off, and the health ch
 
 | Name | Value |
 |---|---|
-| `APP_ADMIN_SYNC_URL` | `https://<borrower app host>/api/internal?op=admin-sync` |
+| `APP_ADMIN_SYNC_URL` | `https://<borrower app host>/api/internal` (each call sets its own `?op=`; a wrong host, path or scheme shows as down on Services and alerts hourly) |
 | `APP_ADMIN_SYNC_SIGNING_KEY` | new random key; the same value goes in the `ficium` Vercel project as `ADMIN_SYNC_VERIFY_KEYS` |
 
 The old direct App DB connection (`APP_DB_SYNC_URL`, `APP_DB_CA_CERT`, role `ficium_admin_sync`) was

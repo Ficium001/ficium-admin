@@ -17,6 +17,7 @@ import { readCredentialAlerts, credentialLines } from "./credential-alerts.js";
 import { readIncidentAlerts, incidentLines } from "./incidents.js";
 import type { DispatchDeps, OutboxEvent, Outcome } from "./outbox.js";
 import { appSyncApply, appSyncConfigured } from "./app-sync.js";
+import { appEndpointProblem } from "./app-endpoint.js";
 
 let neon: pg.Pool | null = null;
 
@@ -100,6 +101,8 @@ export async function healthCheck(): Promise<Health> {
   if (!appSyncConfigured()) {
     alerts.push("Changes cannot reach the borrower app: set APP_ADMIN_SYNC_URL and APP_ADMIN_SYNC_SIGNING_KEY.");
   }
+  const endpoint = appEndpointProblem();
+  if (endpoint) alerts.push(`Changes cannot reach the borrower app: ${endpoint}`);
   let warnings: string[] = [];
   try {
     const drift = await readDrift((sql) => pool.query(sql), "app_admin", false);

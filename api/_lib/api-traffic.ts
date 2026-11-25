@@ -25,6 +25,7 @@
  *    or is unreachable the transaction rolls back and nothing is recorded as done anywhere.
  */
 import { requireStaffIdentity, AuthError, type Staff } from "./access.js";
+import { appEndpoint } from "./app-endpoint.js";
 import { withAdmin, requestMeta, kickDispatch, dbError, type Q, type Meta } from "./admin-db.js";
 import { portalApi, bearer, sign, PortalApiError, type PortalCall } from "./portal-api.js";
 import { currentSite } from "./site.js";
@@ -97,9 +98,7 @@ export function appProduct(env: Env = process.env, f: typeof fetch = fetch): Pro
   return {
     push: null,
     read: async () => {
-      const url = new URL(base);
-      if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) throw new Error("APP_ADMIN_SYNC_URL must use https");
-      url.searchParams.set("op", "admin-app");
+      const url = appEndpoint("admin-app", env);
       const raw = JSON.stringify({ action: "traffic" });
       const r = await f(url, {
         method: "POST", body: raw, signal: AbortSignal.timeout(10_000),

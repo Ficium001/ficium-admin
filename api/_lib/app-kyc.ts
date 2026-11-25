@@ -4,6 +4,7 @@
  * owns the cases and documents; this site owns the decisions.
  */
 import { sign } from "./portal-api.js";
+import { appEndpoint } from "./app-endpoint.js";
 
 type Env = Record<string, string | undefined>;
 export type KycCase = Record<string, any> & { submission_id: string; client_id: string; status: string };
@@ -15,11 +16,9 @@ export function appKyc(env: Env = process.env, f: typeof fetch = fetch): AppKyc 
   const base = env.APP_ADMIN_SYNC_URL?.trim(), key = env.APP_ADMIN_SYNC_SIGNING_KEY?.trim();
   if (!base || !key) return null;
   const call = async (body: Record<string, unknown>): Promise<{ status: number; data: any }> => {
-    const url = new URL(base);
-    if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
-      throw new AppKycError("APP_ADMIN_SYNC_URL must use https");
-    }
-    url.searchParams.set("op", "admin-kyc");
+    let url: URL;
+    try { url = appEndpoint("admin-kyc", env); }
+    catch (e) { throw new AppKycError((e as Error).message); }
     const raw = JSON.stringify(body);
     const r = await f(url, {
       method: "POST", body: raw, signal: AbortSignal.timeout(10_000),
